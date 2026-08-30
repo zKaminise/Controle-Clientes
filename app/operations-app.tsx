@@ -1861,6 +1861,16 @@ function CommercialPage({ data, openCreate, openEdit }: CrudPageProps) {
   );
 }
 
+const templateExampleVariables = {
+  nome: 'Cliente',
+  empresa: 'Empresa Exemplo',
+  descricao: 'serviço contratado',
+  valor: 'R$ 150,00',
+  vencimento: '10/09/2026',
+  dominio: 'exemplo.com.br',
+  meu_nome: 'Gabriel',
+};
+
 function MessagesPage({
   data,
   openCreate,
@@ -1884,7 +1894,7 @@ function MessagesPage({
         to,
         subject: template.subject || template.name,
         content: template.content,
-        variables: { nome: 'Cliente', meu_nome: 'Gabriel' },
+        variables: templateExampleVariables,
       }),
     });
     const result = (await response.json()) as { error?: string };
@@ -1913,20 +1923,15 @@ function MessagesPage({
               </Button>
             </div>
             <p className="mt-4 line-clamp-5 whitespace-pre-line text-sm leading-6 text-muted-foreground">
-              {renderTemplate(template.content, {
-                nome: 'Cliente',
-                empresa: 'Empresa',
-                valor: 'R$ 0,00',
-                vencimento: '00/00/0000',
-                dominio: 'exemplo.com.br',
-                meu_nome: 'Gabriel',
-              })}
+              {renderTemplate(template.content, templateExampleVariables)}
             </p>
             <div className="mt-5 grid grid-cols-2 gap-2">
               <Button
                 variant="outline"
                 onClick={async () => {
-                  await navigator.clipboard.writeText(template.content);
+                  await navigator.clipboard.writeText(
+                    renderTemplate(template.content, templateExampleVariables),
+                  );
                   setToast('Mensagem copiada.');
                 }}
               >
@@ -1956,14 +1961,10 @@ function MessagesPage({
                       window.open(
                         whatsappUrl(
                           phone,
-                          renderTemplate(template.content, {
-                            nome: 'Cliente',
-                            empresa: 'Empresa',
-                            valor: 'R$ 0,00',
-                            vencimento: '00/00/0000',
-                            dominio: 'exemplo.com.br',
-                            meu_nome: 'Gabriel',
-                          }),
+                          renderTemplate(
+                            template.content,
+                            templateExampleVariables,
+                          ),
                         ),
                         '_blank',
                         'noopener,noreferrer',
@@ -2002,14 +2003,7 @@ function MessagesPage({
           </DialogHeader>
           <div className="rounded-xl border bg-muted/40 p-5 whitespace-pre-line text-sm">
             {preview &&
-              renderTemplate(preview.content, {
-                nome: 'Cliente',
-                empresa: 'Empresa Exemplo',
-                valor: 'R$ 150,00',
-                vencimento: '10/09/2026',
-                dominio: 'exemplo.com.br',
-                meu_nome: 'Gabriel',
-              })}
+              renderTemplate(preview.content, templateExampleVariables)}
           </div>
         </DialogContent>
       </Dialog>

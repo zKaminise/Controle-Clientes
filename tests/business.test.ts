@@ -130,4 +130,12 @@ describe('pipeline and formatting rules', () => {
     expect(
       renderTemplate('Olá {{nome}} — {{outro}}', { nome: 'Gabriel' }),
     ).toBe('Olá Gabriel — {{outro}}'));
+  it('renders every operational charge placeholder', () =>
+    expect(
+      renderTemplate('{{descricao}} · {{valor}} · {{vencimento}}', {
+        descricao: 'serviço contratado',
+        valor: 'R$ 150,00',
+        vencimento: '10/09/2026',
+      }),
+    ).toBe('serviço contratado · R$ 150,00 · 10/09/2026'));
 });
