@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { db } from '@/db';
@@ -7,12 +8,12 @@ import { passwordResetEmail } from '@/lib/email-templates';
 import { env } from '@/lib/env';
 
 const baseURL = env.BETTER_AUTH_URL || 'http://localhost:3000';
-const buildOnlySecret = 'build-only-placeholder-not-for-runtime-use-000000000000';
+const unavailableRuntimeSecret = randomBytes(32).toString('base64url');
 
 export const auth = betterAuth({
   appName: 'Minha Operação',
   baseURL,
-  secret: env.BETTER_AUTH_SECRET || buildOnlySecret,
+  secret: env.BETTER_AUTH_SECRET || unavailableRuntimeSecret,
   database: drizzleAdapter(db, {
     provider: 'pg',
     schema: {
