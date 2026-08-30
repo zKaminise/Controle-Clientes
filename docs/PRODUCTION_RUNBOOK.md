@@ -95,7 +95,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 
 As automações são idempotentes: cobranças usam assinatura/período; tarefas e notificações usam chaves únicas. Remova registros de QA antes do uso real.
 
-Para QA em produção, crie a empresa com o nome exato `__QA__:<UUID do run>`. A limpeza protegida exige `QA_OWNER_EMAIL`, `QA_RUN_ID` e a confirmação literal `CLEAN_QA_CONFIRM=DELETE_ONLY_MARKED_QA_DATA`; IDs exatos podem ser fornecidos individualmente em `QA_AUTOMATION_RUN_ID`/`QA_MESSAGE_LOG_ID` ou, quando houver mais de um, nas listas separadas por vírgula `QA_AUTOMATION_RUN_IDS`/`QA_MESSAGE_LOG_IDS` (máximo de 20 UUIDs por lista). Só então execute `npm run db:clean-qa`. O script recusa marcadores ausentes/ambíguos, valida todos os IDs e nunca faz truncate.
+Para QA em produção, crie a empresa com o nome exato `__QA__:<UUID do run>`. A limpeza protegida exige `QA_OWNER_EMAIL`, `QA_RUN_ID` e a confirmação literal `CLEAN_QA_CONFIRM=DELETE_ONLY_MARKED_QA_DATA`; IDs exatos podem ser fornecidos individualmente em `QA_AUTOMATION_RUN_ID`/`QA_MESSAGE_LOG_ID` ou, quando houver mais de um, nas listas separadas por vírgula `QA_AUTOMATION_RUN_IDS`/`QA_MESSAGE_LOG_IDS` (máximo de 20 UUIDs por lista). Se o teste de CSV criar uma empresa, ela deve ter o nome exato `__QA__:<UUID do run>:CSV` e esse mesmo valor deve ser informado em `QA_CSV_COMPANY_NAME`. Só então execute `npm run db:clean-qa`. O script recusa marcadores ausentes/ambíguos, valida todos os IDs e nunca faz truncate.
 
 ## Resend e reset de senha
 

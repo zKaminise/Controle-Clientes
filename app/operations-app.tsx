@@ -420,6 +420,9 @@ export function OperationsApp({ initialUser }: { initialUser: User }) {
     return () => clearTimeout(timer);
   }, [toast]);
   useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [page]);
+  useEffect(() => {
     if (search.trim().length < 2) {
       setSearchResults([]);
       return;
@@ -1031,6 +1034,13 @@ function CompaniesPage({
             <Upload />
             Importar CSV
           </Button>
+          <a
+            className="inline-flex h-8 items-center justify-center gap-2 rounded-lg border bg-background px-3 text-xs font-medium transition-colors hover:bg-muted"
+            href="/api/import/companies/template"
+          >
+            <Download className="size-3.5" />
+            Modelo CSV
+          </a>
           <ExportButton entity="companies" />
         </div>
       }

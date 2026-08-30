@@ -10,6 +10,7 @@ const input = z
     QA_AUTOMATION_RUN_IDS: z.string().trim().optional(),
     QA_MESSAGE_LOG_ID: z.string().uuid().optional(),
     QA_MESSAGE_LOG_IDS: z.string().trim().optional(),
+    QA_CSV_COMPANY_NAME: z.string().trim().optional(),
     CLEAN_QA_CONFIRM: z.literal('DELETE_ONLY_MARKED_QA_DATA'),
   })
   .parse(process.env);
@@ -42,6 +43,12 @@ const messageLogIds = exactIds(
 
 const sql = neon(input.DATABASE_URL);
 const marker = `__QA__:${input.QA_RUN_ID}`;
+const csvCompanyName = `${marker}:CSV`;
+if (input.QA_CSV_COMPANY_NAME && input.QA_CSV_COMPANY_NAME !== csvCompanyName) {
+  throw new Error(
+    'A limpeza foi recusada: QA_CSV_COMPANY_NAME não corresponde ao run informado.',
+  );
+}
 
 const owners = await sql`
   select id from users where lower(email) = lower(${input.QA_OWNER_EMAIL}) limit 2
@@ -63,10 +70,25 @@ if (markedCompanies.length !== 1) {
   );
 }
 
+if (input.QA_CSV_COMPANY_NAME) {
+  const csvCompanies = await sql`
+    select id from companies
+    where owner_user_id = ${ownerUserId}::uuid and name = ${csvCompanyName}
+  `;
+  if (csvCompanies.length !== 1) {
+    throw new Error(
+      'A limpeza foi recusada: a empresa QA de importação não foi encontrada exatamente uma vez.',
+    );
+  }
+}
+
 await sql.transaction((tx) => [
   tx`create temporary table qa_company_ids on commit drop as
     select id from companies
-    where owner_user_id = ${ownerUserId}::uuid and name = ${marker}`,
+    where owner_user_id = ${ownerUserId}::uuid and (
+      name = ${marker} or
+      (${input.QA_CSV_COMPANY_NAME ?? null}::text is not null and name = ${csvCompanyName})
+    )`,
   tx`delete from notifications where user_id = ${ownerUserId}::uuid and (
     (entity_type = 'company' and entity_id in (select id from qa_company_ids)) or
     (entity_type = 'domain' and entity_id in (select id from domains where company_id in (select id from qa_company_ids))) or
@@ -95,7 +117,7 @@ await sql.transaction((tx) => [
   tx`delete from projects where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
   tx`delete from contacts where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
   tx`delete from company_tags where company_id in (select id from qa_company_ids)`,
-  tx`delete from companies where owner_user_id = ${ownerUserId}::uuid and name = ${marker}`,
+  tx`delete from companies where owner_user_id = ${ownerUserId}::uuid and id in (select id from qa_company_ids)`,
   ...automationRunIds.map(
     (id) => tx`delete from automation_runs where id = ${id}::uuid`,
   ),
