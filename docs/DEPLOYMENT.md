@@ -2,12 +2,10 @@
 
 ## 1. Neon
 
-1. Crie um projeto PostgreSQL na região mais próxima dos usuários.
-2. Mantenha a branch padrão para Production.
-3. Crie uma branch separada para desenvolvimento e outra estratégia para Preview.
-4. Copie a connection string pooled de cada ambiente.
-5. Defina a string local em `.env.local` e execute `npm run db:migrate`.
-6. Execute `npm run create-admin` com as variáveis temporárias.
+1. Use o projeto Neon Production já criado.
+2. Copie a connection string pooled sem expô-la em logs ou commits.
+3. Defina a string somente na Vercel Production e no `.env.local` ignorado usado para operação inicial.
+4. Execute `npm run db:migrate`, `npm run db:verify` e depois o bootstrap do admin.
 
 Uma Neon API Key não é necessária: a aplicação usa apenas `DATABASE_URL`.
 
@@ -15,24 +13,14 @@ Uma Neon API Key não é necessária: a aplicação usa apenas `DATABASE_URL`.
 
 1. Na Vercel, escolha Add New Project e importe `zKaminise/Controle-Clientes`.
 2. Confirme Framework Preset `Next.js`, diretório raiz do repositório e comandos padrão.
-3. Cadastre as variáveis abaixo nos escopos corretos.
+3. Cadastre as variáveis somente no escopo Production.
 4. Faça deploy primeiro no domínio `*.vercel.app`.
 5. Confira Build Logs, Function Logs e Cron Jobs.
 6. Execute o smoke test completo antes de conectar domínio próprio.
 
-## 3. Variáveis por ambiente
+## 3. Variáveis de Production
 
-| Variável | Development | Preview | Production |
-|---|---|---|---|
-| `DATABASE_URL` | branch dev | branch preview | branch production |
-| `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | URL do preview | URL canônica |
-| `APP_TIMEZONE` | `America/Sao_Paulo` | igual | igual |
-| `BETTER_AUTH_SECRET` | secret local | secret exclusivo | secret exclusivo |
-| `BETTER_AUTH_URL` | URL local | URL do preview | URL canônica |
-| `CRON_SECRET` | secret local | secret preview | secret production |
-| `RESEND_*` | opcional/teste | opcional/teste | remetente verificado |
-
-Não exponha secrets com `NEXT_PUBLIC_`. Não use o banco de Production em Preview.
+Use a tabela completa em [PRODUCTION_RUNBOOK.md](./PRODUCTION_RUNBOOK.md). As URLs canônicas são `https://clientes.gabrielmisao.com.br`; `BETTER_AUTH_SECRET` e `CRON_SECRET` devem ser secrets distintos e estáveis. Não exponha secrets com prefixo `NEXT_PUBLIC_`.
 
 ## 4. Migrations e administrador
 
@@ -64,7 +52,7 @@ Após validar a URL da Vercel:
 5. Atualize `NEXT_PUBLIC_APP_URL` e `BETTER_AUTH_URL` para `https://clientes.gabrielmisao.com.br`.
 6. Faça redeploy e repita auth, cron e e-mail.
 
-O DNS não foi alterado durante a migração.
+Em 30/08/2026, o hostname já respondia pela Vercel com HTTPS, porém retornava `DEPLOYMENT_NOT_FOUND`; ele ainda precisa ser vinculado ao projeto/deployment correto.
 
 ## 8. Rollback
 

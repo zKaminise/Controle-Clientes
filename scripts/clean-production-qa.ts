@@ -1,0 +1,67 @@
+import { neon } from '@neondatabase/serverless';
+import { z } from 'zod';
+
+const input = z.object({
+  DATABASE_URL: z.string().trim().url(),
+  QA_OWNER_EMAIL: z.string().trim().email(),
+  QA_RUN_ID: z.string().uuid(),
+  QA_AUTOMATION_RUN_ID: z.string().uuid().optional(),
+  QA_MESSAGE_LOG_ID: z.string().uuid().optional(),
+  CLEAN_QA_CONFIRM: z.literal('DELETE_ONLY_MARKED_QA_DATA'),
+}).parse(process.env);
+
+const sql = neon(input.DATABASE_URL);
+const marker = `__QA__:${input.QA_RUN_ID}`;
+
+const owners = await sql`
+  select id from users where lower(email) = lower(${input.QA_OWNER_EMAIL}) limit 2
+`;
+if (owners.length !== 1) {
+  throw new Error('A limpeza foi recusada: QA_OWNER_EMAIL não identifica exatamente um usuário.');
+}
+
+const ownerUserId = String(owners[0].id);
+const markedCompanies = await sql`
+  select id from companies
+  where owner_user_id = ${ownerUserId}::uuid and name = ${marker}
+`;
+if (markedCompanies.length !== 1) {
+  throw new Error('A limpeza foi recusada: o marcador QA não identifica exatamente uma empresa.');
+}
+
+await sql.transaction((tx) => [
+  tx`create temporary table qa_company_ids on commit drop as
+    select id from companies
+    where owner_user_id = ${ownerUserId}::uuid and name = ${marker}`,
+  tx`delete from notifications where user_id = ${ownerUserId}::uuid and (
+    (entity_type = 'company' and entity_id in (select id from qa_company_ids)) or
+    (entity_type = 'domain' and entity_id in (select id from domains where company_id in (select id from qa_company_ids))) or
+    (entity_type = 'charge' and entity_id in (select id from charges where company_id in (select id from qa_company_ids))) or
+    (entity_type = 'opportunity' and entity_id in (select id from opportunities where company_id in (select id from qa_company_ids))) or
+    (entity_type = 'meeting' and entity_id in (select id from meetings where company_id in (select id from qa_company_ids)))
+  )`,
+  tx`delete from message_logs where owner_user_id = ${ownerUserId}::uuid and (
+    company_id in (select id from qa_company_ids) or
+    (${input.QA_MESSAGE_LOG_ID ?? null}::uuid is not null and id = ${input.QA_MESSAGE_LOG_ID ?? null}::uuid)
+  )`,
+  tx`delete from activities where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from tasks where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from payments where owner_user_id = ${ownerUserId}::uuid and charge_id in (select id from charges where company_id in (select id from qa_company_ids))`,
+  tx`delete from charges where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from subscriptions where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from proposals where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from meetings where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from interactions where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from opportunities where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from project_technologies where project_id in (select id from projects where company_id in (select id from qa_company_ids))`,
+  tx`delete from domains where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from hosting_services where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from email_services where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from projects where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from contacts where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from company_tags where company_id in (select id from qa_company_ids)`,
+  tx`delete from companies where owner_user_id = ${ownerUserId}::uuid and name = ${marker}`,
+  tx`delete from automation_runs where ${input.QA_AUTOMATION_RUN_ID ?? null}::uuid is not null and id = ${input.QA_AUTOMATION_RUN_ID ?? null}::uuid`,
+]);
+
+console.log('Limpeza QA concluída para o marcador e os IDs exatos informados.');

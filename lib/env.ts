@@ -1,20 +1,69 @@
 import { z } from 'zod';
 
-const optionalUrl = z.string().url().optional().or(z.literal(''));
+function trimEnvironmentValue(value: unknown) {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
+const requiredString = (name: string) =>
+  z.preprocess(
+    trimEnvironmentValue,
+    z.string({ error: `${name} é obrigatória.` }).min(1, `${name} é obrigatória.`),
+  );
+
+const requiredUrl = (name: string) =>
+  z.preprocess(
+    trimEnvironmentValue,
+    z.url({ error: `${name} deve ser uma URL absoluta válida.` }),
+  );
+
+const optionalString = z.preprocess(trimEnvironmentValue, z.string().min(1).optional());
+const optionalEmail = z.preprocess(
+  trimEnvironmentValue,
+  z.email({ error: 'RESEND_FROM_EMAIL deve ser um endereço de e-mail válido.' }).optional(),
+);
+
+function isValidTimeZone(value: string) {
+  try {
+    new Intl.DateTimeFormat('pt-BR', { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const serverEnvSchema = z.object({
-  DATABASE_URL: optionalUrl,
-  BETTER_AUTH_SECRET: z.string().min(32).optional(),
-  BETTER_AUTH_URL: optionalUrl,
-  NEXT_PUBLIC_APP_URL: optionalUrl,
-  APP_TIMEZONE: z.string().default('America/Sao_Paulo'),
-  CRON_SECRET: z.string().min(16).optional(),
-  RESEND_API_KEY: z.string().min(1).optional(),
-  RESEND_FROM_EMAIL: z.string().email().optional(),
-  RESEND_FROM_NAME: z.string().min(1).optional(),
+  DATABASE_URL: requiredUrl('DATABASE_URL'),
+  BETTER_AUTH_SECRET: z.preprocess(
+    trimEnvironmentValue,
+    z.string({ error: 'BETTER_AUTH_SECRET é obrigatória.' }).min(32, 'BETTER_AUTH_SECRET deve ter ao menos 32 caracteres.'),
+  ),
+  BETTER_AUTH_URL: requiredUrl('BETTER_AUTH_URL'),
+  NEXT_PUBLIC_APP_URL: requiredUrl('NEXT_PUBLIC_APP_URL'),
+  APP_TIMEZONE: requiredString('APP_TIMEZONE').refine(isValidTimeZone, 'APP_TIMEZONE deve ser uma timezone IANA válida.'),
+  CRON_SECRET: z.preprocess(
+    trimEnvironmentValue,
+    z.string({ error: 'CRON_SECRET é obrigatória.' }).min(32, 'CRON_SECRET deve ter ao menos 32 caracteres.'),
+  ),
+  RESEND_API_KEY: optionalString,
+  RESEND_FROM_EMAIL: optionalEmail,
+  RESEND_FROM_NAME: optionalString,
+}).superRefine((values, context) => {
+  if (Boolean(values.RESEND_API_KEY) === Boolean(values.RESEND_FROM_EMAIL)) return;
+
+  context.addIssue({
+    code: 'custom',
+    path: values.RESEND_API_KEY ? ['RESEND_FROM_EMAIL'] : ['RESEND_API_KEY'],
+    message: 'RESEND_API_KEY e RESEND_FROM_EMAIL devem ser configuradas juntas.',
+  });
 });
 
-export const env = serverEnvSchema.parse({
+export function parseServerEnv(source: Record<string, unknown>) {
+  return serverEnvSchema.parse(source);
+}
+
+export const env = parseServerEnv({
   DATABASE_URL: process.env.DATABASE_URL,
   BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
   BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
@@ -27,13 +76,5 @@ export const env = serverEnvSchema.parse({
 });
 
 export function requireRuntimeEnv() {
-  const missing = [
-    ['DATABASE_URL', env.DATABASE_URL],
-    ['BETTER_AUTH_SECRET', env.BETTER_AUTH_SECRET],
-    ['BETTER_AUTH_URL', env.BETTER_AUTH_URL],
-  ].filter(([, value]) => !value).map(([name]) => name);
-
-  if (missing.length) {
-    throw new Error(`Configuração pendente: ${missing.join(', ')}`);
-  }
+  return env;
 }

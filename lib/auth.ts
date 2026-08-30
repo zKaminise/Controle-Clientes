@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { db } from '@/db';
@@ -7,13 +6,20 @@ import { sendEmail } from '@/lib/email';
 import { passwordResetEmail } from '@/lib/email-templates';
 import { env } from '@/lib/env';
 
-const baseURL = env.BETTER_AUTH_URL || 'http://localhost:3000';
-const unavailableRuntimeSecret = randomBytes(32).toString('base64url');
+const baseURL = env.BETTER_AUTH_URL;
+
+function vercelProductionOrigin() {
+  const hostname = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim().toLowerCase();
+  if (!hostname || !hostname.endsWith('.vercel.app') || hostname.includes('/')) return null;
+  return `https://${hostname}`;
+}
+
+const trustedOrigins = [...new Set([baseURL, vercelProductionOrigin()].filter((value): value is string => Boolean(value)))];
 
 export const auth = betterAuth({
   appName: 'Minha Operação',
   baseURL,
-  secret: env.BETTER_AUTH_SECRET || unavailableRuntimeSecret,
+  secret: env.BETTER_AUTH_SECRET,
   database: drizzleAdapter(db, {
     provider: 'pg',
     schema: {
@@ -57,7 +63,7 @@ export const auth = betterAuth({
       '/reset-password': { window: 900, max: 5 },
     },
   },
-  trustedOrigins: [baseURL],
+  trustedOrigins,
   advanced: {
     useSecureCookies: process.env.NODE_ENV === 'production',
     database: {

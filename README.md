@@ -16,7 +16,7 @@ Stack: Next.js 16, React 19, TypeScript, Tailwind CSS 4, Drizzle ORM, Neon Serve
 
 ## Instalação local
 
-Requisitos: Node.js 22.13 ou superior, npm e um banco PostgreSQL Neon de desenvolvimento.
+Requisitos: Node.js 22.x, npm e acesso ao Neon Production.
 
 ```bash
 npm install
@@ -28,7 +28,7 @@ npm run dev
 
 No Windows PowerShell, use `Copy-Item .env.example .env.local` no lugar de `cp`.
 
-O endereço local é `http://localhost:3000`. Sem as variáveis obrigatórias, o projeto ainda compila, mas a autenticação e as rotas privadas retornam indisponibilidade segura.
+O endereço local é `http://localhost:3000`. A validação também é executada no build: variáveis obrigatórias ausentes ou inválidas interrompem a compilação em vez de produzir um deploy inseguro.
 
 ## Variáveis de ambiente
 
@@ -39,7 +39,7 @@ Use [.env.example](./.env.example) como modelo. Nunca versione `.env.local`.
 - `APP_TIMEZONE`: timezone operacional; padrão `America/Sao_Paulo`.
 - `BETTER_AUTH_SECRET`: segredo aleatório com pelo menos 32 caracteres.
 - `BETTER_AUTH_URL`: URL canônica usada pelo Better Auth.
-- `CRON_SECRET`: segredo validado no endpoint do cron.
+- `CRON_SECRET`: segredo independente, gerado com 32 bytes aleatórios, validado no endpoint do cron.
 - `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME`: opcionais até ativar envio de e-mail.
 - `ADMIN_EMAIL`, `ADMIN_INITIAL_PASSWORD`: usados somente no bootstrap e removidos depois.
 
@@ -78,15 +78,9 @@ npm run build
 npm audit
 ```
 
-## Neon, Vercel e ambientes
+## Neon e Vercel
 
-Use bancos separados:
-
-- Local: branch Neon de desenvolvimento em `.env.local`.
-- Preview: branch Neon por preview ou uma branch compartilhada sem dados de produção.
-- Production: branch/banco Neon exclusivo de produção.
-
-Nunca copie `DATABASE_URL` de Production para Preview. Importe este repositório na Vercel, configure as variáveis por ambiente e faça o primeiro deploy em `*.vercel.app`. Somente após os smoke tests adicione `clientes.gabrielmisao.com.br`; os registros DNS exatos devem ser copiados do painel da Vercel. Consulte [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md).
+A operação atual usa uma única linha oficial: `GitHub main → Vercel Production → Neon Production`. Preview e staging não são requisitos. Nunca execute seed demo, limpeza ou teste destrutivo nesse banco. O deploy não altera dados automaticamente. Consulte [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) e [docs/PRODUCTION_RUNBOOK.md](./docs/PRODUCTION_RUNBOOK.md).
 
 ## Cron e Resend
 
@@ -112,6 +106,7 @@ O módulo Relatórios/Configurações exporta CSV de empresas, contatos, projeto
 - [Banco de dados](./docs/DATABASE.md)
 - [Deploy](./docs/DEPLOYMENT.md)
 - [Automações](./docs/AUTOMATIONS.md)
+- [Runbook de produção](./docs/PRODUCTION_RUNBOOK.md)
 - [Handoff final](./FINAL_HANDOFF.md)
 
 O remote antigo do ChatGPT Sites permanece somente como rollback temporário (`sites-legacy`). A aplicação atual não depende de Sites, Vinext, Cloudflare Workers, D1, Wrangler ou Miniflare.

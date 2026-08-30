@@ -1,6 +1,6 @@
 # Banco de dados
 
-O schema final é PostgreSQL e está em `db/schema.ts`. A migration inicial cria 31 tabelas, 48 índices, 63 foreign keys e constraints de integridade. Todos os IDs principais usam UUID gerado pelo PostgreSQL.
+O schema final é PostgreSQL e está em `db/schema.ts`. Em 30/08/2026, a migration inicial foi aplicada no Neon Production e a verificação direta confirmou 31 tabelas, 79 índices totais, 63 foreign keys e constraints de integridade. Todos os IDs principais usam UUID gerado pelo PostgreSQL.
 
 ## Catálogo de tabelas
 
@@ -61,10 +61,11 @@ npm run db:generate
 # revisar o novo SQL
 npm run db:migrate
 npm run db:seed
+npm run db:verify
 ```
 
 Nunca edite uma migration já aplicada em produção. Gere uma migration incremental.
 
 ## Ambientes e backup
 
-Mantenha URLs separadas para Local, Preview e Production. Antes de uma migration de produção, crie uma branch/restore point no Neon. Teste restauração e migration em Preview. Os CSVs da aplicação são portabilidade funcional, não substituem backup completo do PostgreSQL.
+A operação atual utiliza somente o Neon Production. Antes de uma migration relevante, crie um restore point/branch de segurança no Neon e teste a restauração de forma isolada. Os CSVs da aplicação são portabilidade funcional, não substituem backup completo do PostgreSQL.

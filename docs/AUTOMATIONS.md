@@ -3,7 +3,7 @@
 ## Execução
 
 - Endpoint: `GET /api/cron/automations`.
-- Agenda: diária, definida em `vercel.json` como `15 9 * * *` (UTC).
+- Agenda: diária, definida em `vercel.json` como `15 9 * * *` (09:15 UTC / 06:15 em São Paulo, UTC−3).
 - Segurança: `Authorization: Bearer <CRON_SECRET>` com comparação em tempo constante.
 - Auditoria: cada execução cria e finaliza um registro em `automation_runs`.
 

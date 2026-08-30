@@ -11,20 +11,24 @@ function configurationError() {
   );
 }
 
-export async function GET(request: Request) {
+function ensureRuntimeConfiguration() {
   try {
     requireRuntimeEnv();
-    return handler.GET(request);
-  } catch {
+    return null;
+  } catch (error) {
+    console.error('A autenticação não pôde iniciar porque a configuração do ambiente é inválida.', error);
     return configurationError();
   }
 }
 
+export async function GET(request: Request) {
+  const error = ensureRuntimeConfiguration();
+  if (error) return error;
+  return handler.GET(request);
+}
+
 export async function POST(request: Request) {
-  try {
-    requireRuntimeEnv();
-    return handler.POST(request);
-  } catch {
-    return configurationError();
-  }
+  const error = ensureRuntimeConfiguration();
+  if (error) return error;
+  return handler.POST(request);
 }

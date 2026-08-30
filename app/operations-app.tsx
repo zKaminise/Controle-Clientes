@@ -2094,6 +2094,7 @@ function SettingsPage({
   const [currency, setCurrency] = useState(data.settings?.currency || 'BRL');
   const [domainAlertDays, setDomainAlertDays] = useState((data.settings?.domainAlertDays || [60, 30, 15, 7, 3, 0]).join(', '));
   const [defaultPostSaleMonths, setDefaultPostSaleMonths] = useState(data.settings?.defaultPostSaleMonths || 6);
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
 
   async function saveSettings() {
     const alertDays = [...new Set(domainAlertDays.split(',').map((value) => Number(value.trim())).filter((value) => Number.isInteger(value) && value >= 0 && value <= 365))].sort((a, b) => b - a);
@@ -2102,6 +2103,19 @@ function SettingsPage({
       action: 'updateSettings',
       data: { businessName, timezone, currency, theme, domainAlertDays: alertDays, defaultPostSaleMonths: Number(defaultPostSaleMonths) },
     }, 'Configurações salvas.');
+  }
+
+  async function sendTestEmail() {
+    setSendingTestEmail(true);
+    try {
+      const response = await fetch('/api/email/test', { method: 'POST' });
+      const result = await response.json() as { error?: string };
+      setToast(response.ok ? 'E-mail de teste enviado para o seu endereço.' : result.error || 'Falha ao enviar o e-mail de teste.');
+    } catch {
+      setToast('Não foi possível conectar ao serviço de e-mail.');
+    } finally {
+      setSendingTestEmail(false);
+    }
   }
 
   return (
@@ -2198,7 +2212,12 @@ function SettingsPage({
           <label className="text-xs font-medium sm:col-span-2">Alertas de domínio (dias, separados por vírgula)<Input className="mt-2" value={domainAlertDays} onChange={(event) => setDomainAlertDays(event.target.value)} /></label>
           <div className="flex items-center justify-between gap-3 sm:col-span-2">
             <p className="text-xs text-muted-foreground">Segredos do Resend permanecem somente nas variáveis de ambiente.</p>
-            <Button onClick={() => void saveSettings()}>Salvar configurações</Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="outline" disabled={sendingTestEmail} onClick={() => void sendTestEmail()}>
+                {sendingTestEmail ? 'Enviando…' : 'Enviar e-mail de teste'}
+              </Button>
+              <Button onClick={() => void saveSettings()}>Salvar configurações</Button>
+            </div>
           </div>
         </div>
       </Panel>

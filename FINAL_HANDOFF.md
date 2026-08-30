@@ -4,7 +4,7 @@ Data de consolidação: 30/08/2026.
 
 ## Estado
 
-O código está tecnicamente preparado para produção, mas depende da criação/configuração externa do Neon, Vercel e, opcionalmente, Resend. Não houve alteração de DNS. A aplicação legada permanece disponível somente para rollback temporário.
+O Neon Production já está conectado, com migration aplicada e schema verificado. O banco comercial está vazio e ainda não possui administrador. O código está tecnicamente preparado para o deploy final, mas a Vercel ainda exige login/configuração: o domínio responde pela infraestrutura Vercel com HTTPS, porém retorna `DEPLOYMENT_NOT_FOUND`. Resend possui API key informada pelo proprietário, mas o endereço remetente ainda está inválido/ausente. A aplicação legada permanece somente como rollback temporário.
 
 ## Arquitetura e stack
 
@@ -23,7 +23,7 @@ Frontend: React 19, TypeScript, Tailwind CSS 4 e componentes Base UI/shadcn. Bac
 
 O PostgreSQL final possui 31 tabelas: `users`, `sessions`, `accounts`, `verifications`, `rate_limits`, `companies`, `contacts`, `pipeline_stages`, `opportunities`, `projects`, `technologies`, `project_technologies`, `domains`, `hosting_services`, `email_services`, `services`, `subscriptions`, `charges`, `payments`, `proposals`, `meetings`, `tasks`, `interactions`, `message_templates`, `message_logs`, `notifications`, `tags`, `company_tags`, `activities`, `settings` e `automation_runs`.
 
-A migration `drizzle/0000_medical_sway.sql` cria UUIDs, enums, FKs, índices, unique/check constraints, JSONB, datas civis, timestamps com timezone e `numeric(12,2)`. Ela foi gerada e validada localmente, mas ainda não foi aplicada em Neon por ausência de `DATABASE_URL`.
+A migration `drizzle/0000_medical_sway.sql` cria UUIDs, enums, FKs, índices, unique/check constraints, JSONB, datas civis, timestamps com timezone e `numeric(12,2)`. Em 30/08/2026, ela foi aplicada no Neon Production. `npm run db:verify` confirmou 31/31 tabelas, 63 FKs, 79 índices totais, nenhum campo monetário inválido e zero registros em todas as tabelas comerciais.
 
 ## Autenticação
 
@@ -49,7 +49,7 @@ A migration `drizzle/0000_medical_sway.sql` cria UUIDs, enums, FKs, índices, un
 - Assinaturas, cobranças por billing period, pagamentos e MRR normalizado por frequência.
 - Domínios com responsabilidade destacada e thresholds configuráveis.
 - Tarefas com concluir, concluir e criar próxima, adiar e cancelar.
-- Templates, cópia, WhatsApp brasileiro via `wa.me`, envio Resend e log de mensagens.
+- Templates, cópia, WhatsApp brasileiro via `wa.me`, envio Resend, log de mensagens e teste de e-mail autenticado nas Configurações.
 - Busca server-side em empresas, contatos, domínios e projetos.
 - CSV com preview/validação de empresas e exportação de sete entidades.
 - Relatórios comerciais, financeiros, de clientes e domínios.
@@ -62,7 +62,7 @@ A migration `drizzle/0000_medical_sway.sql` cria UUIDs, enums, FKs, índices, un
 
 ## Resend e WhatsApp
 
-O transporte Resend, templates HTML escapados, reset de senha, envio operacional e logging estão implementados. Sem `RESEND_API_KEY` as páginas não relacionadas continuam funcionando e a integração informa configuração pendente. O domínio/remetente ainda precisam ser verificados no painel externo.
+O transporte Resend, templates HTML escapados, reset de senha, envio operacional, logging e botão de teste autenticado estão implementados. `RESEND_API_KEY` e `RESEND_FROM_EMAIL` são opcionais como conjunto; se apenas uma existir, o build falha com indicação específica. A API key foi informada como existente, mas o remetente completo e o domínio efetivamente verificado ainda precisam ser confirmados no painel externo.
 
 WhatsApp funciona sem API: normaliza telefone brasileiro e abre `wa.me` com mensagem renderizada. Não existe envio automático, webhook ou WhatsApp Business Cloud API nesta versão.
 
@@ -72,35 +72,37 @@ WhatsApp funciona sem API: normaliza telefone brasileiro e abre `wa.me` com mens
 - Hash/salt e senha provisória fixa foram removidos do código novo e do histórico destinado ao GitHub.
 - Entradas são validadas no servidor com schemas estritos.
 - Sessões podem ser revogadas e reset de senha revoga sessões existentes.
-- Better Auth fornece proteção de origem/cookie e o app restringe trusted origins.
+- Better Auth fornece proteção de origem/cookie; o app confia somente na URL canônica e no hostname Production `*.vercel.app` fornecido pela própria Vercel.
 - Cron usa Bearer token e comparação em tempo constante.
 - `.gitignore` bloqueia envs, chaves, bancos/dumps, artefatos de teste e configuração Vercel local.
 - CSV exportado neutraliza fórmulas; HTML de e-mail escapa dados.
+- Headers de produção aplicam `nosniff`, frame deny, referrer policy, permissions policy e HSTS; source maps do navegador ficam desativados.
 - Auditoria `npm audit` encerrou com zero vulnerabilidades conhecidas.
 
 ## Testes e validações
 
-Validações locais executadas: instalação, lint, TypeScript, testes unitários, geração de migration, auditoria de dependências e build do Next.js. O QA público verificou login, recuperação, reset e responsividade em 375, 390, 430 e 1440 px; o teste encontrou e corrigiu o tipo dos botões de submit.
+Validações locais executadas: instalação, lint, TypeScript, 17 testes unitários, migration real, verificação estrutural do Neon, auditoria de dependências e build do Next.js. O QA público anterior verificou login, recuperação, reset e responsividade em 375, 390, 430 e 1440 px; o teste encontrou e corrigiu o tipo dos botões de submit.
 
-Os testes autenticados e de integração com banco ainda precisam ser executados depois de fornecer uma `TEST_DATABASE_URL`/branch Neon descartável. Isso é uma dependência externa, não deve ser executado contra Production.
+O smoke test autenticado em produção, cron real, Resend real e limpeza dos respectivos registros QA ainda dependem do deploy e do administrador. Nenhum dado QA foi inserido no Neon antes dessa etapa.
 
 ## Variáveis
 
-Obrigatórias: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`. Operacionais: `NEXT_PUBLIC_APP_URL`, `APP_TIMEZONE`, `CRON_SECRET`. Opcionais: `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME`. Bootstrap temporário: `ADMIN_EMAIL`, `ADMIN_INITIAL_PASSWORD`.
+Runtime obrigatório: `DATABASE_URL`, `NEXT_PUBLIC_APP_URL`, `APP_TIMEZONE`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` e `CRON_SECRET`. E-mail como conjunto: `RESEND_API_KEY` e `RESEND_FROM_EMAIL`. Opcional: `RESEND_FROM_NAME`. Bootstrap temporário: `ADMIN_EMAIL`, `ADMIN_INITIAL_PASSWORD`.
 
 ## Deploy
 
-1. Criar branches Neon separadas e aplicar `npm run db:migrate`.
-2. Criar o administrador com `npm run create-admin` e remover as envs temporárias.
-3. Importar o GitHub na Vercel e cadastrar envs por Development/Preview/Production.
-4. Validar a URL `*.vercel.app`, cron, logs, auth e módulos privados.
-5. Verificar domínio/remetente no Resend se e-mail for habilitado.
-6. Somente então adicionar `clientes.gabrielmisao.com.br` na Vercel e copiar os DNS informados pelo painel.
+1. Entrar na Vercel e vincular o projeto ao repositório/branch `main`.
+2. Corrigir as variáveis Production conforme `docs/PRODUCTION_RUNBOOK.md` e publicar.
+3. Criar o administrador com uma senha inicial válida, executar seed e remover as envs de bootstrap.
+4. Vincular o domínio que já aponta para a Vercel ao deployment correto e validar HTTPS.
+5. Confirmar remetente no Resend e executar auth, cron, e-mail e smoke test completo.
+6. Remover somente os dados QA criados nessa validação e repetir `npm run db:verify`.
 
 ## Limitações conhecidas
 
-- Nenhum deploy, banco Neon ou DNS foi criado sem as credenciais/ações externas do proprietário.
-- Integração autenticada real aguarda banco de teste.
+- O deploy Vercel final aguarda uma sessão autenticada do proprietário.
+- O administrador aguarda uma senha inicial válida de 12 a 128 caracteres; o valor local atual não atende o mínimo e não foi enfraquecido.
+- O remetente completo do Resend ainda precisa ser confirmado.
 - Listas grandes usam limites de leitura defensivos em timeline/logs, mas paginação completa de todas as grades pode ser ampliada antes de volumes muito altos.
 - Tecnologias estão normalizadas no banco, mas o seletor N:N de tecnologias por projeto ainda não está exposto na interface.
 - Recursos deliberadamente futuros: Google Calendar OAuth, WhatsApp Business Cloud API, IA, PDF de proposta e permissões multiusuário complexas.
