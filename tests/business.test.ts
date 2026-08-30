@@ -8,6 +8,7 @@ import {
   minorUnitsToMoney,
   moneyToMinorUnits,
   nextPostSaleDate,
+  paymentAmountForBalance,
   proposalStatusTimestamps,
   nextSubscriptionDate,
   normalizeBrazilianPhone,
@@ -123,6 +124,28 @@ describe('pipeline and formatting rules', () => {
   it('stores currency without binary floating-point persistence', () => {
     expect(moneyToMinorUnits('1.234,56')).toBe(123456);
     expect(minorUnitsToMoney(123456)).toBe('1234.56');
+  });
+  it('calculates partial and final payments from the remaining balance', () => {
+    expect(
+      paymentAmountForBalance({
+        chargeAmount: '100.00',
+        alreadyPaid: '0',
+        requestedAmount: '40',
+      }),
+    ).toBe('40.00');
+    expect(
+      paymentAmountForBalance({
+        chargeAmount: '100.00',
+        alreadyPaid: '40.00',
+      }),
+    ).toBe('60.00');
+    expect(() =>
+      paymentAmountForBalance({
+        chargeAmount: '100.00',
+        alreadyPaid: '40.00',
+        requestedAmount: '70',
+      }),
+    ).toThrow('não pode exceder');
   });
   it('normalizes Brazilian WhatsApp numbers', () =>
     expect(normalizeBrazilianPhone('(11) 98765-4321')).toBe('5511987654321'));

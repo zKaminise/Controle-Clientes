@@ -170,10 +170,13 @@ export function whatsappUrl(phone: string, message: string) {
 }
 
 export function moneyToMinorUnits(value: string | number) {
-  const normalized =
-    typeof value === 'number'
-      ? value.toFixed(2)
-      : value.trim().replace(/\./g, '').replace(',', '.');
+  const normalized = (() => {
+    if (typeof value === 'number') return value.toFixed(2);
+    const trimmed = value.trim();
+    if (trimmed.includes(','))
+      return trimmed.replace(/\./g, '').replace(',', '.');
+    return trimmed;
+  })();
   if (!/^-?\d+(\.\d{1,2})?$/.test(normalized))
     throw new Error('Valor monetário inválido.');
   return Math.round(Number(normalized) * 100);
@@ -181,6 +184,27 @@ export function moneyToMinorUnits(value: string | number) {
 
 export function minorUnitsToMoney(value: number) {
   return (value / 100).toFixed(2);
+}
+
+export function paymentAmountForBalance(input: {
+  chargeAmount: string | number;
+  alreadyPaid: string | number;
+  requestedAmount?: string | number;
+}) {
+  const charge = moneyToMinorUnits(input.chargeAmount);
+  const paid = moneyToMinorUnits(input.alreadyPaid);
+  const remaining = charge - paid;
+  if (remaining <= 0) throw new Error('A cobrança já está quitada.');
+  const requested =
+    input.requestedAmount === undefined
+      ? remaining
+      : moneyToMinorUnits(input.requestedAmount);
+  if (requested <= 0 || requested > remaining) {
+    throw new Error(
+      'O pagamento deve ser maior que zero e não pode exceder o saldo.',
+    );
+  }
+  return minorUnitsToMoney(requested);
 }
 
 export function pipelineTransition(input: {

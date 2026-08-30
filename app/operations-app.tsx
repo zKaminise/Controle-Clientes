@@ -894,7 +894,7 @@ function Dashboard({
   );
   const openAmount = data.charges
     .filter((item) => ['pending', 'overdue'].includes(item.status))
-    .reduce((sum, item) => sum + Number(item.amount), 0);
+    .reduce((sum, item) => sum + chargeBalance(data, item), 0);
   const received = data.payments.reduce(
     (sum, item) => sum + Number(item.amount),
     0,
@@ -1205,16 +1205,19 @@ function PipelinePage({
   openCompany: (id: string) => void;
   mutate: (payload: object, success?: string) => Promise<void>;
 }) {
-  function moveOpportunity(id: string, stage: Stage) {
-    const lostReason = stage.isLost
-      ? window.prompt('Motivo da perda (recomendado):')
-      : undefined;
+  const [lostMove, setLostMove] = useState<{
+    id: string;
+    stage: Stage;
+  } | null>(null);
+  const [lostReason, setLostReason] = useState('');
+
+  function commitMove(id: string, stage: Stage, reason?: string) {
     void mutate(
       {
         action: 'moveOpportunity',
         id,
         pipelineStageId: stage.id,
-        lostReason,
+        lostReason: reason?.trim() || undefined,
       },
       stage.isWon
         ? 'Oportunidade ganha e empresa convertida em cliente.'
@@ -1224,118 +1227,162 @@ function PipelinePage({
     );
   }
 
+  function moveOpportunity(id: string, stage: Stage) {
+    if (stage.isLost) {
+      setLostMove({ id, stage });
+      setLostReason('');
+      return;
+    }
+    commitMove(id, stage);
+  }
+
   return (
-    <div className="overflow-x-auto pb-4">
-      <div className="flex min-w-max gap-4">
-        {data.pipelineStages.map((stage) => {
-          const rows = data.opportunities.filter(
-            (item) => item.pipelineStageId === stage.id,
-          );
-          return (
-            <section
-              key={stage.id}
-              className="w-[300px] shrink-0 rounded-2xl border bg-muted/30"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                const id = event.dataTransfer.getData('text/opportunity');
-                if (!id) return;
-                moveOpportunity(id, stage);
-              }}
-            >
-              <header className="flex items-center justify-between border-b p-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="size-2 rounded-full"
-                      style={{ background: stage.color || '#64748b' }}
-                    />
-                    <h2 className="text-sm font-semibold">{stage.name}</h2>
+    <>
+      <div className="overflow-x-auto pb-4">
+        <div className="flex min-w-max gap-4">
+          {data.pipelineStages.map((stage) => {
+            const rows = data.opportunities.filter(
+              (item) => item.pipelineStageId === stage.id,
+            );
+            return (
+              <section
+                key={stage.id}
+                className="w-[300px] shrink-0 rounded-2xl border bg-muted/30"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  const id = event.dataTransfer.getData('text/opportunity');
+                  if (!id) return;
+                  moveOpportunity(id, stage);
+                }}
+              >
+                <header className="flex items-center justify-between border-b p-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="size-2 rounded-full"
+                        style={{ background: stage.color || '#64748b' }}
+                      />
+                      <h2 className="text-sm font-semibold">{stage.name}</h2>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {rows.length} ·{' '}
+                      {money(
+                        rows.reduce(
+                          (sum, row) => sum + Number(row.estimatedValue),
+                          0,
+                        ),
+                      )}
+                    </p>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {rows.length} ·{' '}
-                    {money(
-                      rows.reduce(
-                        (sum, row) => sum + Number(row.estimatedValue),
-                        0,
-                      ),
-                    )}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() =>
-                    openCreate('opportunities', { pipelineStageId: stage.id })
-                  }
-                >
-                  <Plus />
-                </Button>
-              </header>
-              <div className="min-h-28 space-y-3 p-3">
-                {rows.map((opportunity) => (
-                  <article
-                    draggable
-                    key={opportunity.id}
-                    onDragStart={(event) =>
-                      event.dataTransfer.setData(
-                        'text/opportunity',
-                        opportunity.id,
-                      )
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() =>
+                      openCreate('opportunities', { pipelineStageId: stage.id })
                     }
-                    className="cursor-grab rounded-xl border bg-card p-4 shadow-sm active:cursor-grabbing"
                   >
-                    <button
-                      className="w-full text-left"
-                      onClick={() => openCompany(opportunity.companyId)}
+                    <Plus />
+                  </Button>
+                </header>
+                <div className="min-h-28 space-y-3 p-3">
+                  {rows.map((opportunity) => (
+                    <article
+                      draggable
+                      key={opportunity.id}
+                      onDragStart={(event) =>
+                        event.dataTransfer.setData(
+                          'text/opportunity',
+                          opportunity.id,
+                        )
+                      }
+                      className="cursor-grab rounded-xl border bg-card p-4 shadow-sm active:cursor-grabbing"
                     >
-                      <p className="text-sm font-semibold">
-                        {opportunity.title}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {companyName(data, opportunity.companyId)}
-                      </p>
-                      <div className="mt-4 flex items-center justify-between">
-                        <span className="text-sm font-semibold">
-                          {money(Number(opportunity.estimatedValue))}
-                        </span>
-                        <Badge variant="secondary">
-                          {opportunity.probability}%
-                        </Badge>
-                      </div>
-                      <p className="mt-3 text-[11px] text-muted-foreground">
-                        {opportunity.nextAction || 'Próxima ação não definida'}{' '}
-                        · {datePt(opportunity.nextActionAt)}
-                      </p>
-                    </button>
-                    <NativeSelect
-                      aria-label={`Mover ${opportunity.title} para etapa`}
-                      className="mt-3 w-full"
-                      value={opportunity.pipelineStageId}
-                      onChange={(event) => {
-                        const targetStage = data.pipelineStages.find(
-                          (item) => item.id === event.target.value,
-                        );
-                        if (targetStage)
-                          moveOpportunity(opportunity.id, targetStage);
-                      }}
-                    >
-                      {data.pipelineStages.map((targetStage) => (
-                        <NativeSelectOption
-                          key={targetStage.id}
-                          value={targetStage.id}
-                        >
-                          Mover para: {targetStage.name}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
-                  </article>
-                ))}
-              </div>
-            </section>
-          );
-        })}
+                      <button
+                        className="w-full text-left"
+                        onClick={() => openCompany(opportunity.companyId)}
+                      >
+                        <p className="text-sm font-semibold">
+                          {opportunity.title}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {companyName(data, opportunity.companyId)}
+                        </p>
+                        <div className="mt-4 flex items-center justify-between">
+                          <span className="text-sm font-semibold">
+                            {money(Number(opportunity.estimatedValue))}
+                          </span>
+                          <Badge variant="secondary">
+                            {opportunity.probability}%
+                          </Badge>
+                        </div>
+                        <p className="mt-3 text-[11px] text-muted-foreground">
+                          {opportunity.nextAction ||
+                            'Próxima ação não definida'}{' '}
+                          · {datePt(opportunity.nextActionAt)}
+                        </p>
+                      </button>
+                      <NativeSelect
+                        aria-label={`Mover ${opportunity.title} para etapa`}
+                        className="mt-3 w-full"
+                        value={opportunity.pipelineStageId}
+                        onChange={(event) => {
+                          const targetStage = data.pipelineStages.find(
+                            (item) => item.id === event.target.value,
+                          );
+                          if (targetStage)
+                            moveOpportunity(opportunity.id, targetStage);
+                        }}
+                      >
+                        {data.pipelineStages.map((targetStage) => (
+                          <NativeSelectOption
+                            key={targetStage.id}
+                            value={targetStage.id}
+                          >
+                            Mover para: {targetStage.name}
+                          </NativeSelectOption>
+                        ))}
+                      </NativeSelect>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
       </div>
-    </div>
+      <Dialog
+        open={Boolean(lostMove)}
+        onOpenChange={(open) => !open && setLostMove(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Registrar oportunidade perdida</DialogTitle>
+            <DialogDescription>
+              Informe o motivo para manter o histórico comercial completo.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="text-xs font-medium">
+            Motivo da perda
+            <Textarea
+              className="mt-2"
+              value={lostReason}
+              onChange={(event) => setLostReason(event.target.value)}
+              placeholder="Ex.: orçamento, prazo ou escolha de concorrente"
+            />
+          </label>
+          <Button
+            onClick={() => {
+              if (!lostMove) return;
+              commitMove(lostMove.id, lostMove.stage, lostReason);
+              setLostMove(null);
+              setLostReason('');
+            }}
+          >
+            Registrar perda
+          </Button>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -1388,6 +1435,8 @@ function FinancePage({
   openEdit,
   mutate,
 }: CrudPageProps & { filter: string; setFilter: (value: string) => void }) {
+  const [partialCharge, setPartialCharge] = useState<Charge | null>(null);
+  const [partialAmount, setPartialAmount] = useState('');
   const charges = data.charges.filter(
     (charge) =>
       filter === 'all' ||
@@ -1405,6 +1454,10 @@ function FinancePage({
           ] || 1),
       0,
     );
+  const openAmount = data.charges
+    .filter((item) => ['pending', 'overdue'].includes(item.status))
+    .reduce((sum, item) => sum + chargeBalance(data, item), 0);
+  const partialBalance = partialCharge ? chargeBalance(data, partialCharge) : 0;
   return (
     <div className="space-y-6">
       <section className="grid gap-3 sm:grid-cols-3">
@@ -1416,11 +1469,7 @@ function FinancePage({
         />
         <Metric
           label="Em aberto"
-          value={money(
-            data.charges
-              .filter((item) => ['pending', 'overdue'].includes(item.status))
-              .reduce((sum, item) => sum + Number(item.amount), 0),
-          )}
+          value={money(openAmount)}
           detail="Pendente + atrasado"
           icon={CreditCard}
         />
@@ -1530,23 +1579,40 @@ function FinancePage({
                   <StatusBadge status={charge.status} />
                 </TableCell>
                 <TableCell className="text-right font-semibold">
-                  {money(Number(charge.amount))}
+                  <p>{money(Number(charge.amount))}</p>
+                  {chargeBalance(data, charge) < Number(charge.amount) && (
+                    <p className="text-xs font-normal text-muted-foreground">
+                      Saldo {money(chargeBalance(data, charge))}
+                    </p>
+                  )}
                 </TableCell>
                 <TableCell>
                   <div className="flex justify-end gap-1">
                     {charge.status !== 'paid' &&
                       charge.status !== 'cancelled' && (
-                        <Button
-                          size="sm"
-                          onClick={() =>
-                            void mutate(
-                              { action: 'markPaid', id: charge.id },
-                              'Pagamento registrado.',
-                            )
-                          }
-                        >
-                          Marcar pago
-                        </Button>
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setPartialCharge(charge);
+                              setPartialAmount('');
+                            }}
+                          >
+                            Parcial
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              void mutate(
+                                { action: 'markPaid', id: charge.id },
+                                'Saldo quitado.',
+                              )
+                            }
+                          >
+                            Quitar saldo
+                          </Button>
+                        </>
                       )}
                     <Button
                       variant="ghost"
@@ -1562,6 +1628,55 @@ function FinancePage({
           </TableBody>
         </Table>
       </Panel>
+      <Dialog
+        open={Boolean(partialCharge)}
+        onOpenChange={(open) => !open && setPartialCharge(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Registrar pagamento parcial</DialogTitle>
+            <DialogDescription>
+              {partialCharge?.description} · cobrança de{' '}
+              {money(Number(partialCharge?.amount || 0))} · saldo{' '}
+              {money(partialBalance)}
+            </DialogDescription>
+          </DialogHeader>
+          <label className="text-xs font-medium">
+            Valor recebido
+            <Input
+              className="mt-2"
+              type="number"
+              min="0.01"
+              max={partialBalance}
+              step="0.01"
+              value={partialAmount}
+              onChange={(event) => setPartialAmount(event.target.value)}
+            />
+          </label>
+          <Button
+            disabled={
+              !partialCharge ||
+              Number(partialAmount) <= 0 ||
+              Number(partialAmount) > partialBalance
+            }
+            onClick={async () => {
+              if (!partialCharge) return;
+              await mutate(
+                {
+                  action: 'markPaid',
+                  id: partialCharge.id,
+                  amount: partialAmount,
+                },
+                'Pagamento parcial registrado.',
+              );
+              setPartialCharge(null);
+              setPartialAmount('');
+            }}
+          >
+            Registrar parcial
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1654,6 +1769,8 @@ function AgendaPage({
   openCreate: (entity: Entity, preset?: FormValues) => void;
   mutate: (payload: object, success?: string) => Promise<void>;
 }) {
+  const [snoozeTask, setSnoozeTask] = useState<Task | null>(null);
+  const [snoozeDate, setSnoozeDate] = useState('');
   const tomorrow = new Date(Date.now() + 86_400_000).toISOString();
   const plusSeven = new Date(Date.now() + 7 * 86_400_000).toISOString();
   const groups = ['overdue', 'today', 'upcoming', 'completed'] as const;
@@ -1755,16 +1872,8 @@ function AgendaPage({
                         size="xs"
                         variant="ghost"
                         onClick={() => {
-                          const date = window.prompt('Nova data (AAAA-MM-DD):');
-                          if (date)
-                            void mutate(
-                              {
-                                action: 'snoozeTask',
-                                id: task.id,
-                                until: `${date}T12:00:00-03:00`,
-                              },
-                              'Tarefa adiada.',
-                            );
+                          setSnoozeTask(task);
+                          setSnoozeDate('');
                         }}
                       >
                         Escolher
@@ -1781,6 +1890,44 @@ function AgendaPage({
         <Plus />
         Nova tarefa
       </Button>
+      <Dialog
+        open={Boolean(snoozeTask)}
+        onOpenChange={(open) => !open && setSnoozeTask(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Escolher nova data</DialogTitle>
+            <DialogDescription>{snoozeTask?.title}</DialogDescription>
+          </DialogHeader>
+          <label className="text-xs font-medium">
+            Nova data
+            <Input
+              className="mt-2"
+              type="date"
+              value={snoozeDate}
+              onChange={(event) => setSnoozeDate(event.target.value)}
+            />
+          </label>
+          <Button
+            disabled={!snoozeTask || !snoozeDate}
+            onClick={async () => {
+              if (!snoozeTask || !snoozeDate) return;
+              await mutate(
+                {
+                  action: 'snoozeTask',
+                  id: snoozeTask.id,
+                  until: `${snoozeDate}T12:00:00-03:00`,
+                },
+                'Tarefa adiada.',
+              );
+              setSnoozeTask(null);
+              setSnoozeDate('');
+            }}
+          >
+            Adiar tarefa
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1883,9 +2030,18 @@ function MessagesPage({
   setToast: (message: string) => void;
 }) {
   const [preview, setPreview] = useState<Template | null>(null);
-  async function send(template: Template) {
-    const to = window.prompt('E-mail do destinatário:');
-    if (!to) return;
+  const [delivery, setDelivery] = useState<{
+    template: Template;
+    channel: 'email' | 'whatsapp';
+  } | null>(null);
+  const [destination, setDestination] = useState('');
+
+  function openDelivery(template: Template, channel: 'email' | 'whatsapp') {
+    setDelivery({ template, channel });
+    setDestination('');
+  }
+
+  async function send(template: Template, to: string) {
     const response = await fetch('/api/email', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1903,6 +2059,7 @@ function MessagesPage({
         ? 'E-mail enviado e registrado.'
         : result.error || 'Falha no envio.',
     );
+    return response.ok;
   }
   return (
     <>
@@ -1945,7 +2102,7 @@ function MessagesPage({
               {template.channel === 'email' && (
                 <Button
                   className="col-span-2"
-                  onClick={() => void send(template)}
+                  onClick={() => openDelivery(template, 'email')}
                 >
                   <Mail />
                   Enviar e-mail
@@ -1954,29 +2111,7 @@ function MessagesPage({
               {template.channel === 'whatsapp' && (
                 <Button
                   className="col-span-2"
-                  onClick={() => {
-                    const phone = window.prompt('WhatsApp com DDD:');
-                    if (!phone) return;
-                    try {
-                      window.open(
-                        whatsappUrl(
-                          phone,
-                          renderTemplate(
-                            template.content,
-                            templateExampleVariables,
-                          ),
-                        ),
-                        '_blank',
-                        'noopener,noreferrer',
-                      );
-                    } catch (error) {
-                      setToast(
-                        error instanceof Error
-                          ? error.message
-                          : 'Telefone inválido.',
-                      );
-                    }
-                  }}
+                  onClick={() => openDelivery(template, 'whatsapp')}
                 >
                   <MessageCircle />
                   Abrir WhatsApp
@@ -2007,6 +2142,74 @@ function MessagesPage({
           </div>
         </DialogContent>
       </Dialog>
+      <Dialog
+        open={Boolean(delivery)}
+        onOpenChange={(open) => !open && setDelivery(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {delivery?.channel === 'email'
+                ? 'Enviar e-mail'
+                : 'Abrir no WhatsApp'}
+            </DialogTitle>
+            <DialogDescription>{delivery?.template.name}</DialogDescription>
+          </DialogHeader>
+          <label className="text-xs font-medium">
+            {delivery?.channel === 'email'
+              ? 'E-mail do destinatário'
+              : 'WhatsApp com DDD'}
+            <Input
+              className="mt-2"
+              type={delivery?.channel === 'email' ? 'email' : 'tel'}
+              value={destination}
+              onChange={(event) => setDestination(event.target.value)}
+              placeholder={
+                delivery?.channel === 'email'
+                  ? 'cliente@empresa.com.br'
+                  : '(11) 98765-4321'
+              }
+            />
+          </label>
+          <Button
+            disabled={!delivery || !destination.trim()}
+            onClick={async () => {
+              if (!delivery || !destination.trim()) return;
+              if (delivery.channel === 'email') {
+                const sent = await send(delivery.template, destination.trim());
+                if (!sent) return;
+              } else {
+                try {
+                  window.open(
+                    whatsappUrl(
+                      destination,
+                      renderTemplate(
+                        delivery.template.content,
+                        templateExampleVariables,
+                      ),
+                    ),
+                    '_blank',
+                    'noopener,noreferrer',
+                  );
+                } catch (error) {
+                  setToast(
+                    error instanceof Error
+                      ? error.message
+                      : 'Telefone inválido.',
+                  );
+                  return;
+                }
+              }
+              setDelivery(null);
+              setDestination('');
+            }}
+          >
+            {delivery?.channel === 'email'
+              ? 'Enviar e-mail'
+              : 'Continuar no WhatsApp'}
+          </Button>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -2032,7 +2235,7 @@ function ReportsPage({ data }: { data: AppData }) {
   );
   const overdue = data.charges
     .filter((item) => item.status === 'overdue')
-    .reduce((sum, item) => sum + Number(item.amount), 0);
+    .reduce((sum, item) => sum + chargeBalance(data, item), 0);
   return (
     <div className="grid gap-5 lg:grid-cols-2">
       <ReportBlock
@@ -2062,7 +2265,7 @@ function ReportsPage({ data }: { data: AppData }) {
             money(
               data.charges
                 .filter((item) => item.status === 'pending')
-                .reduce((sum, item) => sum + Number(item.amount), 0),
+                .reduce((sum, item) => sum + chargeBalance(data, item), 0),
             ),
           ],
           ['Atrasado', money(overdue)],
@@ -4079,6 +4282,12 @@ function companyName(data: AppData, id: string) {
     data.companies.find((item) => item.id === id)?.name ||
     'Empresa não encontrada'
   );
+}
+function chargeBalance(data: AppData, charge: Charge) {
+  const paid = data.payments
+    .filter((payment) => payment.chargeId === charge.id)
+    .reduce((sum, payment) => sum + Number(payment.amount), 0);
+  return Math.max(0, Number(charge.amount) - paid);
 }
 function money(value: number) {
   return new Intl.NumberFormat('pt-BR', {

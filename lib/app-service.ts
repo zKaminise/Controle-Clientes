@@ -28,6 +28,7 @@ import {
 import {
   dateAtNoon,
   nextPostSaleDate,
+  paymentAmountForBalance,
   pipelineTransition,
   proposalStatusTimestamps,
 } from '@/lib/business';
@@ -423,16 +424,14 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
           ),
         );
       if (interaction.nextAction && interaction.nextActionAt)
-        await db
-          .insert(tasks)
-          .values({
-            ownerUserId,
-            companyId: interaction.companyId,
-            title: interaction.nextAction,
-            type: 'follow_up',
-            dueAt: interaction.nextActionAt,
-            source: 'manual',
-          });
+        await db.insert(tasks).values({
+          ownerUserId,
+          companyId: interaction.companyId,
+          title: interaction.nextAction,
+          type: 'follow_up',
+          dueAt: interaction.nextActionAt,
+          source: 'manual',
+        });
     }
     const companyId =
       'companyId' in parsed && typeof parsed.companyId === 'string'
@@ -650,7 +649,20 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
     if (!charge) throw new Error('Cobrança não encontrada.');
     if (charge.status === 'cancelled')
       throw new Error('Cobrança cancelada não pode ser paga.');
-    const amount = input.amount || charge.amount;
+    const existingTotals = await db
+      .select({ total: sql<string>`coalesce(sum(${payments.amount}), 0)` })
+      .from(payments)
+      .where(
+        and(
+          eq(payments.chargeId, charge.id),
+          eq(payments.ownerUserId, ownerUserId),
+        ),
+      );
+    const amount = paymentAmountForBalance({
+      chargeAmount: charge.amount,
+      alreadyPaid: existingTotals[0]?.total || '0',
+      requestedAmount: input.amount,
+    });
     const [payment] = await db
       .insert(payments)
       .values({
@@ -709,18 +721,16 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
           : requestedDueAt
             ? new Date(requestedDueAt)
             : new Date();
-      await db
-        .insert(tasks)
-        .values({
-          ownerUserId,
-          companyId: task.companyId,
-          opportunityId: task.opportunityId,
-          title: input.nextAction.title,
-          type: task.type,
-          dueAt,
-          priority: task.priority,
-          source: 'manual',
-        });
+      await db.insert(tasks).values({
+        ownerUserId,
+        companyId: task.companyId,
+        opportunityId: task.opportunityId,
+        title: input.nextAction.title,
+        type: task.type,
+        dueAt,
+        priority: task.priority,
+        source: 'manual',
+      });
     }
     await logActivity({
       ownerUserId,
