@@ -1010,7 +1010,8 @@ function CompaniesPage({
   mutate: (payload: object, success?: string) => Promise<void>;
   onImport: () => void;
 }) {
-  const sourceRows = filter === 'archived' ? data.archivedCompanies : data.companies;
+  const sourceRows =
+    filter === 'archived' ? data.archivedCompanies : data.companies;
   const rows = sourceRows.filter(
     (company) =>
       filter === 'archived' ||
@@ -1114,31 +1115,60 @@ function CompaniesPage({
                 </p>
               </button>
               <div className="mt-4 flex justify-end gap-1 border-t pt-3">
-                {filter !== 'archived' && <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => openCompany(company.id)}
-                >
-                  Ver 360º
-                </Button>}
-                {filter !== 'archived' ? (<>
-                  <Button variant="ghost" size="icon-sm" onClick={() => openEdit('companies', company)}>
-                    <Settings />
-                  </Button>
+                {filter !== 'archived' && (
                   <Button
                     variant="ghost"
-                    size="icon-sm"
-                    onClick={() => window.confirm('Arquivar esta empresa?') && void mutate({ action: 'archive', entity: 'companies', id: company.id }, 'Empresa arquivada.')}
+                    size="sm"
+                    onClick={() => openCompany(company.id)}
                   >
-                    <Archive />
+                    Ver 360º
                   </Button>
-                </>) : (<Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void mutate({ action: 'restore', entity: 'companies', id: company.id }, 'Empresa restaurada.')}
-                >
-                  <RefreshCw /> Restaurar
-                </Button>)}
+                )}
+                {filter !== 'archived' ? (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => openEdit('companies', company)}
+                    >
+                      <Settings />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() =>
+                        window.confirm('Arquivar esta empresa?') &&
+                        void mutate(
+                          {
+                            action: 'archive',
+                            entity: 'companies',
+                            id: company.id,
+                          },
+                          'Empresa arquivada.',
+                        )
+                      }
+                    >
+                      <Archive />
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      void mutate(
+                        {
+                          action: 'restore',
+                          entity: 'companies',
+                          id: company.id,
+                        },
+                        'Empresa restaurada.',
+                      )
+                    }
+                  >
+                    <RefreshCw /> Restaurar
+                  </Button>
+                )}
               </div>
             </article>
           );
@@ -1165,6 +1195,25 @@ function PipelinePage({
   openCompany: (id: string) => void;
   mutate: (payload: object, success?: string) => Promise<void>;
 }) {
+  function moveOpportunity(id: string, stage: Stage) {
+    const lostReason = stage.isLost
+      ? window.prompt('Motivo da perda (recomendado):')
+      : undefined;
+    void mutate(
+      {
+        action: 'moveOpportunity',
+        id,
+        pipelineStageId: stage.id,
+        lostReason,
+      },
+      stage.isWon
+        ? 'Oportunidade ganha e empresa convertida em cliente.'
+        : stage.isLost
+          ? 'Perda registrada.'
+          : 'Etapa atualizada.',
+    );
+  }
+
   return (
     <div className="overflow-x-auto pb-4">
       <div className="flex min-w-max gap-4">
@@ -1180,22 +1229,7 @@ function PipelinePage({
               onDrop={(event) => {
                 const id = event.dataTransfer.getData('text/opportunity');
                 if (!id) return;
-                const lostReason = stage.isLost
-                  ? window.prompt('Motivo da perda (recomendado):')
-                  : undefined;
-                void mutate(
-                  {
-                    action: 'moveOpportunity',
-                    id,
-                    pipelineStageId: stage.id,
-                    lostReason,
-                  },
-                  stage.isWon
-                    ? 'Oportunidade ganha e empresa convertida em cliente.'
-                    : stage.isLost
-                      ? 'Perda registrada.'
-                      : 'Etapa atualizada.',
-                );
+                moveOpportunity(id, stage);
               }}
             >
               <header className="flex items-center justify-between border-b p-4">
@@ -1263,6 +1297,27 @@ function PipelinePage({
                         · {datePt(opportunity.nextActionAt)}
                       </p>
                     </button>
+                    <NativeSelect
+                      aria-label={`Mover ${opportunity.title} para etapa`}
+                      className="mt-3 w-full"
+                      value={opportunity.pipelineStageId}
+                      onChange={(event) => {
+                        const targetStage = data.pipelineStages.find(
+                          (item) => item.id === event.target.value,
+                        );
+                        if (targetStage)
+                          moveOpportunity(opportunity.id, targetStage);
+                      }}
+                    >
+                      {data.pipelineStages.map((targetStage) => (
+                        <NativeSelectOption
+                          key={targetStage.id}
+                          value={targetStage.id}
+                        >
+                          Mover para: {targetStage.name}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
                   </article>
                 ))}
               </div>
@@ -2089,28 +2144,60 @@ function SettingsPage({
   setToast: (value: string) => void;
   mutate: (payload: object, success?: string) => Promise<void>;
 }) {
-  const [businessName, setBusinessName] = useState(data.settings?.businessName || 'Minha Operação');
-  const [timezone, setTimezone] = useState(data.settings?.timezone || 'America/Sao_Paulo');
+  const [businessName, setBusinessName] = useState(
+    data.settings?.businessName || 'Minha Operação',
+  );
+  const [timezone, setTimezone] = useState(
+    data.settings?.timezone || 'America/Sao_Paulo',
+  );
   const [currency, setCurrency] = useState(data.settings?.currency || 'BRL');
-  const [domainAlertDays, setDomainAlertDays] = useState((data.settings?.domainAlertDays || [60, 30, 15, 7, 3, 0]).join(', '));
-  const [defaultPostSaleMonths, setDefaultPostSaleMonths] = useState(data.settings?.defaultPostSaleMonths || 6);
+  const [domainAlertDays, setDomainAlertDays] = useState(
+    (data.settings?.domainAlertDays || [60, 30, 15, 7, 3, 0]).join(', '),
+  );
+  const [defaultPostSaleMonths, setDefaultPostSaleMonths] = useState(
+    data.settings?.defaultPostSaleMonths || 6,
+  );
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
 
   async function saveSettings() {
-    const alertDays = [...new Set(domainAlertDays.split(',').map((value) => Number(value.trim())).filter((value) => Number.isInteger(value) && value >= 0 && value <= 365))].sort((a, b) => b - a);
-    if (!alertDays.length) return setToast('Informe ao menos um intervalo de alerta válido.');
-    await mutate({
-      action: 'updateSettings',
-      data: { businessName, timezone, currency, theme, domainAlertDays: alertDays, defaultPostSaleMonths: Number(defaultPostSaleMonths) },
-    }, 'Configurações salvas.');
+    const alertDays = [
+      ...new Set(
+        domainAlertDays
+          .split(',')
+          .map((value) => Number(value.trim()))
+          .filter(
+            (value) => Number.isInteger(value) && value >= 0 && value <= 365,
+          ),
+      ),
+    ].sort((a, b) => b - a);
+    if (!alertDays.length)
+      return setToast('Informe ao menos um intervalo de alerta válido.');
+    await mutate(
+      {
+        action: 'updateSettings',
+        data: {
+          businessName,
+          timezone,
+          currency,
+          theme,
+          domainAlertDays: alertDays,
+          defaultPostSaleMonths: Number(defaultPostSaleMonths),
+        },
+      },
+      'Configurações salvas.',
+    );
   }
 
   async function sendTestEmail() {
     setSendingTestEmail(true);
     try {
       const response = await fetch('/api/email/test', { method: 'POST' });
-      const result = await response.json() as { error?: string };
-      setToast(response.ok ? 'E-mail de teste enviado para o seu endereço.' : result.error || 'Falha ao enviar o e-mail de teste.');
+      const result = (await response.json()) as { error?: string };
+      setToast(
+        response.ok
+          ? 'E-mail de teste enviado para o seu endereço.'
+          : result.error || 'Falha ao enviar o e-mail de teste.',
+      );
     } catch {
       setToast('Não foi possível conectar ao serviço de e-mail.');
     } finally {
@@ -2180,8 +2267,15 @@ function SettingsPage({
             </div>
           ))}
           <div className="flex flex-wrap gap-2 p-4">
-            <Button variant="outline" onClick={() => openCreate('pipelineStages')}><Plus /> Nova etapa</Button>
-            <Button variant="outline" onClick={() => openCreate('tags')}><Tags /> Nova tag</Button>
+            <Button
+              variant="outline"
+              onClick={() => openCreate('pipelineStages')}
+            >
+              <Plus /> Nova etapa
+            </Button>
+            <Button variant="outline" onClick={() => openCreate('tags')}>
+              <Tags /> Nova tag
+            </Button>
           </div>
         </div>
       </Panel>
@@ -2205,18 +2299,69 @@ function SettingsPage({
         subtitle="Persistida no PostgreSQL"
       >
         <div className="grid gap-4 p-5 text-sm sm:grid-cols-2">
-          <label className="text-xs font-medium">Nome comercial<Input className="mt-2" value={businessName} onChange={(event) => setBusinessName(event.target.value)} /></label>
-          <label className="text-xs font-medium">Timezone<Input className="mt-2" value={timezone} onChange={(event) => setTimezone(event.target.value)} /></label>
-          <label className="text-xs font-medium">Moeda<Input className="mt-2" maxLength={3} value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} /></label>
-          <label className="text-xs font-medium">Pós-venda padrão (meses)<Input className="mt-2" min={1} max={120} type="number" value={defaultPostSaleMonths} onChange={(event) => setDefaultPostSaleMonths(Number(event.target.value))} /></label>
-          <label className="text-xs font-medium sm:col-span-2">Alertas de domínio (dias, separados por vírgula)<Input className="mt-2" value={domainAlertDays} onChange={(event) => setDomainAlertDays(event.target.value)} /></label>
+          <label className="text-xs font-medium">
+            Nome comercial
+            <Input
+              className="mt-2"
+              value={businessName}
+              onChange={(event) => setBusinessName(event.target.value)}
+            />
+          </label>
+          <label className="text-xs font-medium">
+            Timezone
+            <Input
+              className="mt-2"
+              value={timezone}
+              onChange={(event) => setTimezone(event.target.value)}
+            />
+          </label>
+          <label className="text-xs font-medium">
+            Moeda
+            <Input
+              className="mt-2"
+              maxLength={3}
+              value={currency}
+              onChange={(event) =>
+                setCurrency(event.target.value.toUpperCase())
+              }
+            />
+          </label>
+          <label className="text-xs font-medium">
+            Pós-venda padrão (meses)
+            <Input
+              className="mt-2"
+              min={1}
+              max={120}
+              type="number"
+              value={defaultPostSaleMonths}
+              onChange={(event) =>
+                setDefaultPostSaleMonths(Number(event.target.value))
+              }
+            />
+          </label>
+          <label className="text-xs font-medium sm:col-span-2">
+            Alertas de domínio (dias, separados por vírgula)
+            <Input
+              className="mt-2"
+              value={domainAlertDays}
+              onChange={(event) => setDomainAlertDays(event.target.value)}
+            />
+          </label>
           <div className="flex items-center justify-between gap-3 sm:col-span-2">
-            <p className="text-xs text-muted-foreground">Segredos do Resend permanecem somente nas variáveis de ambiente.</p>
+            <p className="text-xs text-muted-foreground">
+              Segredos do Resend permanecem somente nas variáveis de ambiente.
+            </p>
             <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" disabled={sendingTestEmail} onClick={() => void sendTestEmail()}>
+              <Button
+                variant="outline"
+                disabled={sendingTestEmail}
+                onClick={() => void sendTestEmail()}
+              >
                 {sendingTestEmail ? 'Enviando…' : 'Enviar e-mail de teste'}
               </Button>
-              <Button onClick={() => void saveSettings()}>Salvar configurações</Button>
+              <Button onClick={() => void saveSettings()}>
+                Salvar configurações
+              </Button>
             </div>
           </div>
         </div>
@@ -2348,7 +2493,11 @@ function Company360Dialog({
                 <div className="flex justify-between">
                   <p className="text-sm font-medium">{contact.name}</p>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon-xs" onClick={() => openEdit('contacts', contact)}>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => openEdit('contacts', contact)}
+                    >
                       <Settings />
                     </Button>
                     <Button
@@ -2357,7 +2506,11 @@ function Company360Dialog({
                       onClick={() =>
                         window.confirm('Arquivar este contato?') &&
                         void mutate(
-                          { action: 'archive', entity: 'contacts', id: contact.id },
+                          {
+                            action: 'archive',
+                            entity: 'contacts',
+                            id: contact.id,
+                          },
                           'Contato arquivado.',
                         )
                       }
@@ -2404,7 +2557,11 @@ function Company360Dialog({
           <MiniSection
             title="Tags"
             action={
-              <Button size="xs" variant="ghost" onClick={() => openCreate('tags')}>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => openCreate('tags')}
+              >
                 <Plus /> Criar
               </Button>
             }
@@ -2412,7 +2569,8 @@ function Company360Dialog({
             <div className="flex flex-wrap gap-2">
               {data.tags.map((tag) => {
                 const active = data.companyTags.some(
-                  (item) => item.companyId === company.id && item.tagId === tag.id,
+                  (item) =>
+                    item.companyId === company.id && item.tagId === tag.id,
                 );
                 return (
                   <button
@@ -2497,7 +2655,9 @@ function Company360Dialog({
           <LinkedSection
             title="Serviços de e-mail"
             rows={linked(data.emailServices)}
-            render={(row) => `${row.provider || 'Serviço de e-mail'} · ${label(String(row.status || 'active'))}`}
+            render={(row) =>
+              `${row.provider || 'Serviço de e-mail'} · ${label(String(row.status || 'active'))}`
+            }
             onAdd={() => openCreate('emailServices', { companyId: company.id })}
             onEdit={(row) => openEdit('emailServices', row as Row)}
           />
@@ -2894,9 +3054,16 @@ function LinkedSection<T extends { id: string }>({
       }
     >
       {rows.map((row) => (
-        <div key={row.id} className="flex items-center gap-2 rounded-lg bg-muted/50 p-2.5 text-xs">
+        <div
+          key={row.id}
+          className="flex items-center gap-2 rounded-lg bg-muted/50 p-2.5 text-xs"
+        >
           <p className="min-w-0 flex-1 truncate">{render(row)}</p>
-          {onEdit && <Button variant="ghost" size="icon-xs" onClick={() => onEdit(row)}><Settings /></Button>}
+          {onEdit && (
+            <Button variant="ghost" size="icon-xs" onClick={() => onEdit(row)}>
+              <Settings />
+            </Button>
+          )}
         </div>
       ))}
       {!rows.length && (
@@ -3770,7 +3937,13 @@ function defaults(entity: Entity, data: AppData | null): FormValues {
       isPrimary: false,
       isFinancialContact: false,
     },
-    pipelineStages: { position: data?.pipelineStages.length || 0, color: '#64748b', isWon: false, isLost: false, isActive: true },
+    pipelineStages: {
+      position: data?.pipelineStages.length || 0,
+      color: '#64748b',
+      isWon: false,
+      isLost: false,
+      isActive: true,
+    },
     opportunities: {
       companyId: firstCompany,
       pipelineStageId: firstStage,

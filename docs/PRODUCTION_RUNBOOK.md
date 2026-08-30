@@ -12,19 +12,19 @@ Não há banco de Preview, staging, usuário demo ou seed comercial. Deploy não
 
 Configure em **Vercel → Project → Settings → Environment Variables**, somente para Production. Remova espaços e quebras de linha acidentais; URLs devem ser absolutas e sem aspas.
 
-| Variável | Valor ou formato | Manter? | Secret? |
-|---|---|---:|---:|
-| `DATABASE_URL` | connection string **pooled** do Neon, `postgresql://...` | Sim | Sim |
-| `NEXT_PUBLIC_APP_URL` | `https://clientes.gabrielmisao.com.br` | Sim | Não |
-| `APP_TIMEZONE` | `America/Sao_Paulo` | Sim | Não |
-| `BETTER_AUTH_SECRET` | Base64 de 32 bytes aleatórios ou mais | Sim | Sim |
-| `BETTER_AUTH_URL` | `https://clientes.gabrielmisao.com.br` | Sim | Não |
-| `CRON_SECRET` | Base64 de 32 bytes aleatórios, diferente do auth secret | Sim | Sim |
-| `RESEND_API_KEY` | API key de envio do Resend | Se e-mail ativo | Sim |
-| `RESEND_FROM_EMAIL` | endereço completo dentro do domínio verificado | Se e-mail ativo | Não |
-| `RESEND_FROM_NAME` | `Gabriel Misao` ou outro nome visível | Opcional | Não |
-| `ADMIN_EMAIL` | e-mail do administrador | Só bootstrap | Não |
-| `ADMIN_INITIAL_PASSWORD` | senha inicial entre 12 e 128 caracteres | Só bootstrap | Sim |
+| Variável                 | Valor ou formato                                         |         Manter? | Secret? |
+| ------------------------ | -------------------------------------------------------- | --------------: | ------: |
+| `DATABASE_URL`           | connection string **pooled** do Neon, `postgresql://...` |             Sim |     Sim |
+| `NEXT_PUBLIC_APP_URL`    | `https://clientes.gabrielmisao.com.br`                   |             Sim |     Não |
+| `APP_TIMEZONE`           | `America/Sao_Paulo`                                      |             Sim |     Não |
+| `BETTER_AUTH_SECRET`     | Base64 de 32 bytes aleatórios ou mais                    |             Sim |     Sim |
+| `BETTER_AUTH_URL`        | `https://clientes.gabrielmisao.com.br`                   |             Sim |     Não |
+| `CRON_SECRET`            | Base64 de 32 bytes aleatórios, diferente do auth secret  |             Sim |     Sim |
+| `RESEND_API_KEY`         | API key de envio do Resend                               | Se e-mail ativo |     Sim |
+| `RESEND_FROM_EMAIL`      | endereço completo dentro do domínio verificado           | Se e-mail ativo |     Não |
+| `RESEND_FROM_NAME`       | `Gabriel Misao` ou outro nome visível                    |        Opcional |     Não |
+| `ADMIN_EMAIL`            | e-mail do administrador                                  |    Só bootstrap |     Não |
+| `ADMIN_INITIAL_PASSWORD` | senha inicial entre 12 e 128 caracteres                  |    Só bootstrap |     Sim |
 
 `RESEND_API_KEY` e `RESEND_FROM_EMAIL` devem existir juntas. O remetente é um endereço, não um domínio: se o domínio verificado for `gabrielmisao.com.br`, um formato possível é `no-reply@gabrielmisao.com.br`; se for `no-reply.gabrielmisao.com.br`, use algo como `sistema@no-reply.gabrielmisao.com.br`. Confirme o domínio real no painel do Resend antes de escolher.
 
@@ -74,7 +74,7 @@ Em produção, use `generate → revisar SQL → migrate → verify`. Não use `
 `GET /api/health` deve responder `200` com:
 
 ```json
-{"status":"ok","database":"ok"}
+{ "status": "ok", "database": "ok" }
 ```
 
 Em falha, responde `503` sem connection string, secrets ou stack trace no corpo.
@@ -95,7 +95,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 
 As automações são idempotentes: cobranças usam assinatura/período; tarefas e notificações usam chaves únicas. Remova registros de QA antes do uso real.
 
-Para QA em produção, crie a empresa com o nome exato `__QA__:<UUID do run>`. A limpeza protegida exige `QA_OWNER_EMAIL`, `QA_RUN_ID` e a confirmação literal `CLEAN_QA_CONFIRM=DELETE_ONLY_MARKED_QA_DATA`; IDs exatos do run de automação e do message log podem ser fornecidos em `QA_AUTOMATION_RUN_ID` e `QA_MESSAGE_LOG_ID`. Só então execute `npm run db:clean-qa`. O script recusa marcadores ausentes/ambíguos e nunca faz truncate.
+Para QA em produção, crie a empresa com o nome exato `__QA__:<UUID do run>`. A limpeza protegida exige `QA_OWNER_EMAIL`, `QA_RUN_ID` e a confirmação literal `CLEAN_QA_CONFIRM=DELETE_ONLY_MARKED_QA_DATA`; IDs exatos podem ser fornecidos individualmente em `QA_AUTOMATION_RUN_ID`/`QA_MESSAGE_LOG_ID` ou, quando houver mais de um, nas listas separadas por vírgula `QA_AUTOMATION_RUN_IDS`/`QA_MESSAGE_LOG_IDS` (máximo de 20 UUIDs por lista). Só então execute `npm run db:clean-qa`. O script recusa marcadores ausentes/ambíguos, valida todos os IDs e nunca faz truncate.
 
 ## Resend e reset de senha
 
