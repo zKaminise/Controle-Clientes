@@ -1,112 +1,152 @@
-# Final handoff — Controle de Clientes
+# Entrega final — Controle de Clientes
 
 Data de consolidação: 30/08/2026.
 
-## Estado
+## 1. STATUS
 
-O Neon Production já está conectado, com migration aplicada e schema verificado. O banco comercial está vazio e ainda não possui administrador. O código está tecnicamente preparado para o deploy final, mas a Vercel ainda exige login/configuração: o domínio responde pela infraestrutura Vercel com HTTPS, porém retorna `DEPLOYMENT_NOT_FOUND`. Resend possui API key informada pelo proprietário, mas o endereço remetente ainda está inválido/ausente. A aplicação legada permanece somente como rollback temporário.
+Sistema privado em produção em `https://clientes.gabrielmisao.com.br`, com HTTPS, autenticação de administrador, banco Neon Production e deploy contínuo pela Vercel. O health check responde `200` com aplicação e banco operacionais. Os dados usados no QA foram removidos e o banco comercial está limpo.
 
-## Arquitetura e stack
+## 2. GITHUB
+
+Repositório: `https://github.com/zKaminise/Controle-Clientes`, branch `main`. A implementação funcional validada está consolidada a partir do commit `23fea43`; a branch `main` é a referência definitiva para deploy.
+
+## 3. ARQUITETURA FINAL
 
 ```text
 GitHub → Vercel → Next.js 16 App Router → Neon PostgreSQL
-                     ├─ Better Auth 1.7
+                     ├─ Better Auth
                      ├─ Drizzle ORM
                      ├─ Resend
                      ├─ Vercel Cron
                      └─ WhatsApp wa.me
 ```
 
-Frontend: React 19, TypeScript, Tailwind CSS 4 e componentes Base UI/shadcn. Backend: Route Handlers e services server-side. Validação: Zod. Testes: Vitest. O runtime não possui Vinext, Vite como runtime, D1, Cloudflare Worker, Wrangler, Miniflare ou binding do ChatGPT Sites.
+Frontend em React 19, TypeScript e Tailwind CSS 4. Backend em Route Handlers e serviços server-side, com Zod para validação.
 
-## Schema e migration
+## 4. O QUE FOI MIGRADO
 
-O PostgreSQL final possui 31 tabelas: `users`, `sessions`, `accounts`, `verifications`, `rate_limits`, `companies`, `contacts`, `pipeline_stages`, `opportunities`, `projects`, `technologies`, `project_technologies`, `domains`, `hosting_services`, `email_services`, `services`, `subscriptions`, `charges`, `payments`, `proposals`, `meetings`, `tasks`, `interactions`, `message_templates`, `message_logs`, `notifications`, `tags`, `company_tags`, `activities`, `settings` e `automation_runs`.
+A aplicação deixou o protótipo hospedado no ChatGPT Sites e passou a operar como um projeto Next.js independente no GitHub/Vercel, usando Neon PostgreSQL como única fonte de dados de produção. Não há dependência de D1, Cloudflare Worker, Wrangler, Miniflare ou runtime do Sites.
 
-A migration `drizzle/0000_medical_sway.sql` cria UUIDs, enums, FKs, índices, unique/check constraints, JSONB, datas civis, timestamps com timezone e `numeric(12,2)`. Em 30/08/2026, ela foi aplicada no Neon Production. `npm run db:verify` confirmou 31/31 tabelas, 63 FKs, 79 índices totais, nenhum campo monetário inválido e zero registros em todas as tabelas comerciais.
+## 5. O QUE FOI IMPLEMENTADO
 
-## Autenticação
+Dashboard, central de atenção, clientes e prospects, contatos, Empresa 360º, pipeline, projetos, domínios, hospedagem, serviços de e-mail, assinaturas, cobranças, pagamentos, propostas, reuniões, agenda, tarefas, interações, templates, WhatsApp, e-mail, busca, filtros, importação/exportação CSV, relatórios, notificações, configurações e automações diárias.
 
-- Better Auth com e-mail/senha e sessão persistida no PostgreSQL.
-- Cadastro público desativado; administrador criado por `npm run create-admin`.
-- Senha entre 12 e 128 caracteres, sem senha padrão no código.
-- Cookies seguros em produção, trusted origin e secrets obrigatórios no runtime.
-- Recuperação por token de uma hora, e-mail Resend e revogação de sessões após reset.
-- Alteração de senha e encerramento das outras sessões na tela Configurações.
-- Rate limit persistido: login 5/minuto e limites mais restritos nos endpoints de reset.
-- Todas as APIs privadas verificam sessão e aplicam `owner_user_id`.
+## 6. BANCO
 
-## Módulos implementados
+Neon Production verificado com 31 tabelas, 63 chaves estrangeiras, 239 constraints `CHECK`, 31 chaves primárias e 79 índices. Não existem colunas monetárias em formato inadequado.
 
-- Dashboard operacional com clientes, recorrência, MRR, oportunidades e financeiro.
-- Página “Precisa da sua atenção” com urgências agregadas.
-- Empresas/prospects com CRUD, filtros, importação, exportação, soft delete e restauração.
-- Empresa 360º com contatos, tags, próxima ação, projetos, oportunidades, propostas, financeiro, domínios, hospedagem, e-mail, reuniões, tarefas, notas/interações e timeline.
-- Contatos múltiplos, principal único e responsável financeiro.
-- Pipeline configurável, Kanban persistente, ganho/perda e motivo da perda.
-- Projetos, tecnologias normalizadas no schema, hospedagem e serviços de e-mail sem secrets.
-- Propostas e reuniões reais.
-- Assinaturas, cobranças por billing period, pagamentos e MRR normalizado por frequência.
-- Domínios com responsabilidade destacada e thresholds configuráveis.
-- Tarefas com concluir, concluir e criar próxima, adiar e cancelar.
-- Templates, cópia, WhatsApp brasileiro via `wa.me`, envio Resend, log de mensagens e teste de e-mail autenticado nas Configurações.
-- Busca server-side em empresas, contatos, domínios e projetos.
-- CSV com preview/validação de empresas e exportação de sete entidades.
-- Relatórios comerciais, financeiros, de clientes e domínios.
-- Configurações persistidas para nome comercial, timezone, moeda, tema, alertas e pós-venda.
-- Central de notificações com leitura individual e leitura em massa.
+Estado após o QA: zero registros comerciais, zero atividades/notificações/logs QA, 1 usuário administrador, 12 etapas do pipeline, 6 templates de mensagem e 1 configuração.
 
-## Automações
+## 7. MIGRATIONS
 
-`GET /api/cron/automations` é protegido por `CRON_SECRET` e agendado diariamente no `vercel.json`. O service gera cobranças futuras sem depender de pagamento anterior, ativa/agora vence cobranças, cria alertas de domínio, follow-ups, pós-venda, proposta parada e reunião próxima. Tarefas/notificações usam unique idempotency keys e cobranças recorrentes usam `(subscription_id, billing_period)`. Todas as execuções ficam em `automation_runs`.
+A migration `drizzle/0000_medical_sway.sql` está aplicada. Ela cria UUIDs, enums, relações, índices, constraints, JSONB, datas civis, timestamps com timezone e valores `numeric(12,2)`. A verificação de produção confirmou que não há tabela ausente ou inesperada.
 
-## Resend e WhatsApp
+## 8. AUTH
 
-O transporte Resend, templates HTML escapados, reset de senha, envio operacional, logging e botão de teste autenticado estão implementados. `RESEND_API_KEY` e `RESEND_FROM_EMAIL` são opcionais como conjunto; se apenas uma existir, o build falha com indicação específica. A API key foi informada como existente, mas o remetente completo e o domínio efetivamente verificado ainda precisam ser confirmados no painel externo.
+Better Auth usa e-mail/senha e sessão persistida no PostgreSQL. Cadastro público permanece desativado. Senhas exigem de 12 a 128 caracteres, cookies são seguros em produção, o reset expira em uma hora e revoga sessões existentes quando concluído. O administrador é `gabriel.misao08@gmail.com` e já alterou a senha provisória.
 
-WhatsApp funciona sem API: normaliza telefone brasileiro e abre `wa.me` com mensagem renderizada. Não existe envio automático, webhook ou WhatsApp Business Cloud API nesta versão.
+## 9. SECURITY FIXES
 
-## Segurança
-
-- A antiga vulnerabilidade de identificador SQL foi removida por allowlist fechado de tabelas.
-- Hash/salt e senha provisória fixa foram removidos do código novo e do histórico destinado ao GitHub.
-- Entradas são validadas no servidor com schemas estritos.
-- Sessões podem ser revogadas e reset de senha revoga sessões existentes.
-- Better Auth fornece proteção de origem/cookie; o app confia somente na URL canônica e no hostname Production `*.vercel.app` fornecido pela própria Vercel.
+- Todas as APIs privadas verificam sessão e `owner_user_id`.
+- Validação server-side usa schemas estritos.
+- Exportação CSV neutraliza fórmulas e e-mails escapam HTML.
 - Cron usa Bearer token e comparação em tempo constante.
-- `.gitignore` bloqueia envs, chaves, bancos/dumps, artefatos de teste e configuração Vercel local.
-- CSV exportado neutraliza fórmulas; HTML de e-mail escapa dados.
-- Headers de produção aplicam `nosniff`, frame deny, referrer policy, permissions policy e HSTS; source maps do navegador ficam desativados.
-- Auditoria `npm audit` encerrou com zero vulnerabilidades conhecidas.
+- Headers incluem HSTS, `nosniff`, frame deny, referrer policy e permissions policy.
+- Cadastro público e bootstrap permanecem desativados após a criação do administrador.
+- `npm audit` foi validado sem vulnerabilidades conhecidas.
 
-## Testes e validações
+## 10. AUTOMAÇÕES
 
-Validações locais executadas: instalação, lint, TypeScript, 17 testes unitários, migration real, verificação estrutural do Neon, auditoria de dependências e build do Next.js. O QA público anterior verificou login, recuperação, reset e responsividade em 375, 390, 430 e 1440 px; o teste encontrou e corrigiu o tipo dos botões de submit.
+`GET /api/cron/automations` é protegido por `CRON_SECRET` e executado diariamente pela Vercel. O teste agendado real processou os itens esperados; a chamada manual final respondeu `200`, criou o run `4c8cfbce-6a3e-43aa-aa44-136e09b9145f` com `processedCount: 0` e confirmou idempotência. Os runs de QA foram removidos depois da validação.
 
-O smoke test autenticado em produção, cron real, Resend real e limpeza dos respectivos registros QA ainda dependem do deploy e do administrador. Nenhum dado QA foi inserido no Neon antes dessa etapa.
+## 11. FINANCEIRO
 
-## Variáveis
+Assinaturas geram cobranças por período de forma idempotente. Cobranças suportam pagamento parcial e quitação do saldo, sem permitir pagamento acima do valor restante. O QA registrou R$ 40,00 e depois R$ 60,00 em uma cobrança de R$ 100,00; o total ficou correto e o status mudou para pago. Dashboard, financeiro e relatórios usam o saldo restante. Os registros foram removidos após o teste.
 
-Runtime obrigatório: `DATABASE_URL`, `NEXT_PUBLIC_APP_URL`, `APP_TIMEZONE`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` e `CRON_SECRET`. E-mail como conjunto: `RESEND_API_KEY` e `RESEND_FROM_EMAIL`. Opcional: `RESEND_FROM_NAME`. Bootstrap temporário: `ADMIN_EMAIL`, `ADMIN_INITIAL_PASSWORD`.
+## 12. CRM
 
-## Deploy
+Pipeline persistente com 12 etapas, movimentação por seletor acessível e drag-and-drop, conversão de ganho e diálogo próprio para motivo de perda. Clientes, contatos, oportunidades, projetos, propostas, reuniões, tags, interações e histórico foram exercitados durante o QA.
 
-1. Entrar na Vercel e vincular o projeto ao repositório/branch `main`.
-2. Corrigir as variáveis Production conforme `docs/PRODUCTION_RUNBOOK.md` e publicar.
-3. Criar o administrador com uma senha inicial válida, executar seed e remover as envs de bootstrap.
-4. Vincular o domínio que já aponta para a Vercel ao deployment correto e validar HTTPS.
-5. Confirmar remetente no Resend e executar auth, cron, e-mail e smoke test completo.
-6. Remover somente os dados QA criados nessa validação e repetir `npm run db:verify`.
+## 13. RESEND
 
-## Limitações conhecidas
+O transporte Resend está ativo em produção. A solicitação real de recuperação para `gabriel.misao08@gmail.com` foi aceita pela aplicação em 30/08/2026. Templates HTML, envio operacional e teste autenticado nas Configurações estão implementados. A confirmação visual do recebimento na caixa de entrada depende do proprietário.
 
-- O deploy Vercel final aguarda uma sessão autenticada do proprietário.
-- O administrador aguarda uma senha inicial válida de 12 a 128 caracteres; o valor local atual não atende o mínimo e não foi enfraquecido.
-- O remetente completo do Resend ainda precisa ser confirmado.
-- Listas grandes usam limites de leitura defensivos em timeline/logs, mas paginação completa de todas as grades pode ser ampliada antes de volumes muito altos.
-- Tecnologias estão normalizadas no banco, mas o seletor N:N de tecnologias por projeto ainda não está exposto na interface.
-- Recursos deliberadamente futuros: Google Calendar OAuth, WhatsApp Business Cloud API, IA, PDF de proposta e permissões multiusuário complexas.
+## 14. WHATSAPP
 
-## Referências operacionais
+Telefones brasileiros são normalizados e abertos em `wa.me` com mensagem renderizada. O formulário usa diálogo interno responsivo; não depende mais de `window.prompt`. Não há envio automático nem WhatsApp Business Cloud API.
 
-Consulte `README.md`, `docs/ARCHITECTURE.md`, `docs/DATABASE.md`, `docs/DEPLOYMENT.md`, `docs/AUTOMATIONS.md` e `docs/TECHNICAL_HANDOFF_LEGACY.md`.
+## 15. BUSCA E FILTROS
+
+Busca server-side validada para empresa, contato, domínio e projeto. Filtros de clientes, arquivados, sem contato, cobranças, recorrência e demais estados operacionais foram testados.
+
+## 16. IMPORTAÇÃO/EXPORTAÇÃO
+
+Importação CSV de empresas possui modelo protegido, preview, validação e detecção de duplicidade. Exportações CSV estão disponíveis para as entidades principais. Download do modelo, importação, duplicidade e exportação foram validados em produção.
+
+## 17. RELATÓRIOS
+
+Relatórios comerciais, financeiros, de clientes e de domínios usam dados persistidos. Ganhos, pendências, atrasos, recebimentos, conversão e MRR foram conferidos durante o QA. Valores pendentes agora descontam pagamentos parciais.
+
+## 18. TESTES
+
+Foram aprovados lint, TypeScript, build Next.js e 20 testes automatizados. Os testes cobrem datas, pipeline, recorrência, moeda, saldo parcial/final, bloqueio de sobrepagamento, WhatsApp e renderização de templates. O build de produção foi aprovado no Node.js 22.
+
+## 19. QA VISUAL
+
+As principais telas foram inspecionadas em desktop e nos viewports móveis de 375, 390 e 430 px. Pipeline, clientes, edição, financeiro, agenda, dashboard e navegação foram exercitados. Os diálogos de pagamento parcial, perda, escolha de data, WhatsApp e e-mail foram validados em produção.
+
+## 20. ENVIRONMENT VARIABLES
+
+Obrigatórias: `DATABASE_URL`, `NEXT_PUBLIC_APP_URL`, `APP_TIMEZONE`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` e `CRON_SECRET`.
+
+E-mail: `RESEND_API_KEY` e `RESEND_FROM_EMAIL` devem existir juntos; `RESEND_FROM_NAME` é opcional. `ADMIN_EMAIL`, `ADMIN_INITIAL_PASSWORD` e `ALLOW_ADMIN_BOOTSTRAP` são somente de bootstrap e não devem permanecer em produção.
+
+## 21. .ENV.LOCAL
+
+O `.env.local` não é versionado. O `CRON_SECRET` local foi confirmado contra a produção. Ainda é necessário remover manualmente `ADMIN_EMAIL` e `ADMIN_INITIAL_PASSWORD` do arquivo local. Para testes locais de e-mail, copie também o mesmo `RESEND_FROM_EMAIL` usado na Vercel, sem enviar valores secretos por chat.
+
+## 22. O QUE EU PRECISO FAZER NO NEON
+
+Nada obrigatório. O schema e os dados foram verificados e o banco comercial está limpo. Mantenha backups e acesso restrito ao projeto.
+
+## 23. O QUE EU PRECISO FAZER NA VERCEL
+
+Remover `ADMIN_EMAIL`, `ADMIN_INITIAL_PASSWORD` e `ALLOW_ADMIN_BOOTSTRAP` caso ainda estejam salvos nas variáveis de Production. Manter o domínio, as variáveis obrigatórias e o cron ativos. Não alterar os secrets sem atualizar os ambientes correspondentes.
+
+## 24. O QUE EU PRECISO FAZER NO RESEND
+
+Confirmar que o e-mail de recuperação chegou e manter o domínio/remetente verificado. Se desejar testar envio local, copiar `RESEND_FROM_EMAIL` para `.env.local`. Nenhuma API key deve ser enviada por chat ou versionada.
+
+## 25. ADMIN
+
+Administrador único: `gabriel.misao08@gmail.com`. A senha provisória já foi alterada. Um novo link de recuperação foi enviado no teste final; o proprietário deve concluir ou simplesmente ignorar esse link. O agente nunca lê nem envia a senha final.
+
+## 26. DOMÍNIO
+
+`https://clientes.gabrielmisao.com.br` está vinculado à Vercel, usa HTTPS e responde normalmente. `BETTER_AUTH_URL` e `NEXT_PUBLIC_APP_URL` devem continuar apontando para essa URL canônica.
+
+## 27. CHECKLIST MINHA
+
+- Confirmar o recebimento do e-mail de recuperação.
+- Remover as variáveis temporárias de bootstrap da Vercel e do `.env.local`.
+- Se usar o link de recuperação, escolher pessoalmente a nova senha e entrar novamente.
+
+## 28. PENDÊNCIAS
+
+Não há pendência técnica bloqueadora. Restam somente as três conferências manuais do checklist. Evoluções opcionais: Google Calendar OAuth, WhatsApp Business Cloud API, PDF de proposta, seletor N:N de tecnologias e permissões multiusuário.
+
+## 29. TESTE FINAL
+
+- Health check: `200`, aplicação `ok`, banco `ok`.
+- Cron manual: `200`, idempotente, zero duplicações.
+- Pagamento parcial/final: R$ 40,00 + R$ 60,00 = R$ 100,00, cobrança paga.
+- Recuperação de senha: requisição aceita pela produção.
+- Banco após limpeza: zero registros comerciais e zero marcadores QA.
+- Estrutura: 31 tabelas, 63 FKs, 239 checks, 79 índices.
+- Código: lint, tipos, 20 testes e build aprovados.
+
+## 30. RESUMO EXECUTIVO
+
+O Controle de Clientes está publicado, privado, conectado ao Neon Production e preparado para uso real pelo único administrador. Os fluxos de CRM, projetos, financeiro, domínios, agenda, comunicação, relatórios, automações e segurança foram implementados e validados. Todo o conteúdo criado exclusivamente para QA foi removido de forma controlada.
+
+Referências: `README.md`, `docs/ARCHITECTURE.md`, `docs/DATABASE.md`, `docs/DEPLOYMENT.md`, `docs/AUTOMATIONS.md` e `docs/PRODUCTION_RUNBOOK.md`.

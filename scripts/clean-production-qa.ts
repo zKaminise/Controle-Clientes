@@ -101,7 +101,14 @@ await sql.transaction((tx) => [
     (id) =>
       tx`delete from message_logs where owner_user_id = ${ownerUserId}::uuid and id = ${id}::uuid`,
   ),
-  tx`delete from activities where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
+  tx`delete from activities where owner_user_id = ${ownerUserId}::uuid and (
+    company_id in (select id from qa_company_ids) or
+    (entity_type = 'companies' and entity_id in (select id from qa_company_ids)) or
+    (entity_type = 'projects' and entity_id in (select id from projects where company_id in (select id from qa_company_ids))) or
+    (entity_type = 'domains' and entity_id in (select id from domains where company_id in (select id from qa_company_ids))) or
+    (entity_type = 'hostingServices' and entity_id in (select id from hosting_services where company_id in (select id from qa_company_ids))) or
+    (entity_type = 'emailServices' and entity_id in (select id from email_services where company_id in (select id from qa_company_ids)))
+  )`,
   tx`delete from tasks where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
   tx`delete from payments where owner_user_id = ${ownerUserId}::uuid and charge_id in (select id from charges where company_id in (select id from qa_company_ids))`,
   tx`delete from charges where owner_user_id = ${ownerUserId}::uuid and company_id in (select id from qa_company_ids)`,
