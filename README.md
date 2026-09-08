@@ -1,6 +1,20 @@
 # Controle de Clientes — Minha Operação
 
-Sistema web privado para administrar clientes, CRM, projetos, propostas, reuniões, recorrências, cobranças, pagamentos, domínios, tarefas e comunicação. O acesso público é desativado: existe somente o administrador criado pelo comando de bootstrap.
+Sistema web privado para administrar leads, prospecção, clientes, projetos, propostas, reuniões, recorrências, cobranças, pagamentos, domínios, tarefas e comunicação. O acesso público é desativado: existe somente o administrador criado pelo comando de bootstrap.
+
+## CRM de prospecção
+
+- Empresas classificadas como lead, prospect, cliente, ex-cliente ou parceiro.
+- Funil de prospecção com 21 estados claros e mudança rápida pela grade.
+- Análise digital de site, mobile, velocidade, design, CTA, SEO, HTTPS e oportunidades.
+- Lead score de 0 a 100, faixas de prioridade e regras configuráveis.
+- Histórico individual de contatos, resultado, observação e próxima ação.
+- Follow-ups com motivo, prioridade e lembrete; visão diária e leads sem ação.
+- Indicações com indicador, indicado, status e conversão.
+- Importação CSV em etapas, com mapeamento, prévia, erros e tratamento de duplicados.
+- Filtros combináveis e APIs autenticadas para automação futura.
+
+Consulte o [guia rápido](./docs/CRM-GUIDE.md), a [API privada](./docs/CRM-API.md) e a [auditoria inicial](./docs/CRM-AUDIT.md).
 
 ## Arquitetura
 
@@ -54,7 +68,7 @@ npm run db:seed       # seed idempotente para usuários existentes
 npm run db:studio     # abre o Drizzle Studio
 ```
 
-O schema usa UUID, `numeric(12,2)` para dinheiro, `date` para vencimentos, `timestamptz` para eventos, enums, JSONB, FKs, índices e constraints. A migration inicial está em `drizzle/0000_medical_sway.sql`. Consulte [docs/DATABASE.md](./docs/DATABASE.md).
+O schema usa UUID, `numeric(12,2)` para dinheiro, `date` para vencimentos, `timestamptz` para eventos, enums, JSONB, FKs, índices e constraints. As migrations são incrementais e ficam em `drizzle/`; nunca edite uma migration já aplicada. Consulte [docs/DATABASE.md](./docs/DATABASE.md).
 
 ## Primeiro administrador
 
@@ -103,6 +117,9 @@ O módulo Relatórios/Configurações exporta CSV de empresas, contatos, projeto
 ## Documentação
 
 - [Arquitetura](./docs/ARCHITECTURE.md)
+- [Auditoria do CRM](./docs/CRM-AUDIT.md)
+- [Guia do CRM](./docs/CRM-GUIDE.md)
+- [API privada do CRM](./docs/CRM-API.md)
 - [Banco de dados](./docs/DATABASE.md)
 - [Deploy](./docs/DEPLOYMENT.md)
 - [Automações](./docs/AUTOMATIONS.md)

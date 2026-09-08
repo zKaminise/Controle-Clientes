@@ -1,7 +1,8 @@
 import { neon } from '@neondatabase/serverless';
 
 const databaseUrl = process.env.DATABASE_URL?.trim();
-if (!databaseUrl) throw new Error('Defina DATABASE_URL antes de verificar o banco.');
+if (!databaseUrl)
+  throw new Error('Defina DATABASE_URL antes de verificar o banco.');
 
 const expectedTables = [
   'accounts',
@@ -11,21 +12,25 @@ const expectedTables = [
   'companies',
   'company_tags',
   'contacts',
+  'digital_analyses',
   'domains',
   'email_services',
   'hosting_services',
   'interactions',
+  'lead_score_rules',
   'meetings',
   'message_logs',
   'message_templates',
   'notifications',
   'opportunities',
   'payments',
+  'pipeline_history',
   'pipeline_stages',
   'project_technologies',
   'projects',
   'proposals',
   'rate_limits',
+  'referrals',
   'services',
   'sessions',
   'settings',
@@ -52,6 +57,9 @@ const commercialTables = [
   'meetings',
   'tasks',
   'interactions',
+  'digital_analyses',
+  'pipeline_history',
+  'referrals',
   'message_logs',
   'notifications',
   'activities',
@@ -66,8 +74,12 @@ const tableRows = await sql`
   order by table_name
 `;
 const actualTables = tableRows.map((row) => String(row.table_name));
-const missingTables = expectedTables.filter((table) => !actualTables.includes(table));
-const unexpectedTables = actualTables.filter((table) => !expectedTables.includes(table as (typeof expectedTables)[number]));
+const missingTables = expectedTables.filter(
+  (table) => !actualTables.includes(table),
+);
+const unexpectedTables = actualTables.filter(
+  (table) => !expectedTables.includes(table as (typeof expectedTables)[number]),
+);
 
 const constraintRows = await sql`
   select constraint_type, count(*)::int as total
@@ -96,9 +108,18 @@ const invalidMoneyRows = await sql`
 `;
 
 const countRows = await Promise.all(
-  [...commercialTables, 'users', 'pipeline_stages', 'message_templates', 'settings'].map(async (table) => {
+  [
+    ...commercialTables,
+    'users',
+    'pipeline_stages',
+    'message_templates',
+    'settings',
+  ].map(async (table) => {
     if (!actualTables.includes(table)) return [table, null] as const;
-    const result = await sql.query(`select count(*)::int as total from \"${table}\"`, []);
+    const result = await sql.query(
+      `select count(*)::int as total from \"${table}\"`,
+      [],
+    );
     return [table, Number(result[0]?.total ?? 0)] as const;
   }),
 );
@@ -118,6 +139,10 @@ const report = {
 
 console.log(JSON.stringify(report, null, 2));
 
-if (missingTables.length || unexpectedTables.length || invalidMoneyRows.length) {
+if (
+  missingTables.length ||
+  unexpectedTables.length ||
+  invalidMoneyRows.length
+) {
   process.exitCode = 1;
 }

@@ -5,7 +5,7 @@ Branch de evolução: `feat/crm-prospeccao`
 
 ## Resumo executivo
 
-O projeto atual é uma base funcional e segura de operação do cliente, projetos, cobranças recorrentes e cobran operacionais. Ele já resolve bem a operação de uma operação de sites com poucos clientes, mas ainda não oferece a profundidade necessária para prospecção em volume. A evolução deve preservar a tabela `companies`, adicionar entidades complementares e evitar uma reescrita destrutiva.
+O projeto atual é uma base funcional e segura para clientes, projetos, cobranças recorrentes e rotinas operacionais. Ele já resolve bem uma operação de sites com poucos clientes, mas ainda não oferece a profundidade necessária para prospecção em volume. A evolução deve preservar a tabela `companies`, adicionar entidades complementares e evitar uma reescrita destrutiva.
 
 O banco conectado possui dados reais e deve ser preservado. Na auditoria foram encontrados 5 empresas, 1 contato, 5 projetos, 1 hospedagem, 1 assinatura, 1 cobrança e 14 atividades. Não há oportunidades, pagamentos, propostas, reuniões, tarefas, interações ou notificações cadastradas neste momento.
 
