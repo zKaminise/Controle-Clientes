@@ -115,6 +115,51 @@ async function ownedCompany(ownerUserId: string, companyId: string) {
   return company;
 }
 
+async function validateOwnedRelations(
+  ownerUserId: string,
+  parsed: Record<string, unknown>,
+) {
+  const relations: Array<[keyof typeof parsed, typeof companies, string]> = [
+    ['referredByCompanyId', companies, 'Empresa indicadora'],
+    [
+      'pipelineStageId',
+      pipelineStages as unknown as typeof companies,
+      'Etapa do pipeline',
+    ],
+    ['projectId', projects as unknown as typeof companies, 'Projeto'],
+    ['serviceId', services as unknown as typeof companies, 'Serviço'],
+    [
+      'subscriptionId',
+      subscriptions as unknown as typeof companies,
+      'Assinatura',
+    ],
+    [
+      'opportunityId',
+      opportunities as unknown as typeof companies,
+      'Oportunidade',
+    ],
+    ['chargeId', charges as unknown as typeof companies, 'Cobrança'],
+    ['domainId', domains as unknown as typeof companies, 'Domínio'],
+    ['meetingId', meetings as unknown as typeof companies, 'Reunião'],
+  ];
+  for (const [key, table, label] of relations) {
+    const relationId = parsed[key];
+    if (typeof relationId !== 'string') continue;
+    const [row] = await db
+      .select({ id: table.id })
+      .from(table)
+      .where(and(eq(table.id, relationId), eq(table.ownerUserId, ownerUserId)))
+      .limit(1);
+    if (!row) throw new Error(`${label} vinculado não encontrado.`);
+  }
+  const responsibleUserId = parsed.responsibleUserId;
+  if (
+    typeof responsibleUserId === 'string' &&
+    responsibleUserId !== ownerUserId
+  )
+    throw new Error('Responsável inválido para esta operação.');
+}
+
 async function scoreAnalysis(
   ownerUserId: string,
   companyId: string,
@@ -487,6 +532,10 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
 
   if (input.action === 'create') {
     const parsed = parseEntityPayload(input.entity, input.data);
+    await validateOwnedRelations(
+      ownerUserId,
+      parsed as Record<string, unknown>,
+    );
     const linkedCompanyId = (parsed as { companyId?: string | null }).companyId;
     if (linkedCompanyId) await ownedCompany(ownerUserId, linkedCompanyId);
     if (input.entity === 'referrals') {
@@ -656,6 +705,10 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
 
   if (input.action === 'update') {
     const parsed = parseEntityPayload(input.entity, input.data, true);
+    await validateOwnedRelations(
+      ownerUserId,
+      parsed as Record<string, unknown>,
+    );
     const linkedCompanyId = (parsed as { companyId?: string | null }).companyId;
     if (linkedCompanyId) await ownedCompany(ownerUserId, linkedCompanyId);
     if (input.entity === 'referrals') {
