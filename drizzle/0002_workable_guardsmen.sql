@@ -1,0 +1,2 @@
+ALTER TABLE "digital_analyses" ADD COLUMN "score_override" integer;--> statement-breakpoint
+ALTER TABLE "digital_analyses" ADD CONSTRAINT "digital_analyses_score_override_range" CHECK ("digital_analyses"."score_override" is null or "digital_analyses"."score_override" between 0 and 100);
