@@ -6,19 +6,23 @@ import {
   companies,
   companyTags,
   contacts,
+  digitalAnalyses,
   domains,
   emailServices,
   hostingServices,
   interactions,
+  leadScoreRules,
   meetings,
   messageLogs,
   messageTemplates,
   notifications,
   opportunities,
   payments,
+  pipelineHistory,
   pipelineStages,
   projects,
   proposals,
+  referrals,
   services,
   settings,
   subscriptions,
@@ -33,6 +37,11 @@ import {
   proposalStatusTimestamps,
 } from '@/lib/business';
 import {
+  calculateLeadScore,
+  DEFAULT_LEAD_SCORE_RULES,
+  leadScoreLevel,
+} from '@/lib/crm';
+import {
   type EntityName,
   mutationSchema,
   parseEntityPayload,
@@ -40,6 +49,7 @@ import {
 
 const entityTables: Record<EntityName, typeof companies> = {
   companies,
+  digitalAnalyses: digitalAnalyses as unknown as typeof companies,
   contacts: contacts as unknown as typeof companies,
   pipelineStages: pipelineStages as unknown as typeof companies,
   opportunities: opportunities as unknown as typeof companies,
@@ -50,11 +60,12 @@ const entityTables: Record<EntityName, typeof companies> = {
   services: services as unknown as typeof companies,
   subscriptions: subscriptions as unknown as typeof companies,
   charges: charges as unknown as typeof companies,
-  payments: payments as unknown as typeof companies,
   proposals: proposals as unknown as typeof companies,
   meetings: meetings as unknown as typeof companies,
   tasks: tasks as unknown as typeof companies,
   interactions: interactions as unknown as typeof companies,
+  referrals: referrals as unknown as typeof companies,
+  leadScoreRules: leadScoreRules as unknown as typeof companies,
   messageTemplates: messageTemplates as unknown as typeof companies,
   tags: tags as unknown as typeof companies,
 };
@@ -92,14 +103,132 @@ async function logActivity(input: {
   });
 }
 
+async function ownedCompany(ownerUserId: string, companyId: string) {
+  const [company] = await db
+    .select()
+    .from(companies)
+    .where(
+      and(eq(companies.id, companyId), eq(companies.ownerUserId, ownerUserId)),
+    )
+    .limit(1);
+  if (!company) throw new Error('Empresa vinculada não encontrada.');
+  return company;
+}
+
+async function scoreAnalysis(
+  ownerUserId: string,
+  companyId: string,
+  analysis: Parameters<typeof calculateLeadScore>[1],
+) {
+  const [company, customRules] = await Promise.all([
+    ownedCompany(ownerUserId, companyId),
+    db
+      .select()
+      .from(leadScoreRules)
+      .where(eq(leadScoreRules.ownerUserId, ownerUserId)),
+  ]);
+  const override = (analysis as { scoreOverride?: number | null })
+    .scoreOverride;
+  if (override !== null && override !== undefined) {
+    return {
+      score: override,
+      level: leadScoreLevel(override),
+      breakdown: [
+        {
+          ruleKey: 'manual_override',
+          label: 'Pontuação informada manualmente',
+          points: override,
+        },
+      ],
+    };
+  }
+  return calculateLeadScore(
+    company,
+    analysis,
+    customRules.length ? customRules : DEFAULT_LEAD_SCORE_RULES,
+  );
+}
+
+async function recalculateOwnerScores(ownerUserId: string, companyId?: string) {
+  const [companyRows, analysisRows, customRules] = await Promise.all([
+    db
+      .select()
+      .from(companies)
+      .where(
+        companyId
+          ? and(
+              eq(companies.ownerUserId, ownerUserId),
+              eq(companies.id, companyId),
+            )
+          : eq(companies.ownerUserId, ownerUserId),
+      ),
+    db
+      .select()
+      .from(digitalAnalyses)
+      .where(
+        companyId
+          ? and(
+              eq(digitalAnalyses.ownerUserId, ownerUserId),
+              eq(digitalAnalyses.companyId, companyId),
+            )
+          : eq(digitalAnalyses.ownerUserId, ownerUserId),
+      ),
+    db
+      .select()
+      .from(leadScoreRules)
+      .where(eq(leadScoreRules.ownerUserId, ownerUserId)),
+  ]);
+  const companyMap = new Map(companyRows.map((row) => [row.id, row]));
+  for (const analysis of analysisRows) {
+    const company = companyMap.get(analysis.companyId);
+    if (!company) continue;
+    const score =
+      analysis.scoreOverride === null
+        ? calculateLeadScore(
+            company,
+            analysis,
+            customRules.length ? customRules : DEFAULT_LEAD_SCORE_RULES,
+          )
+        : {
+            score: analysis.scoreOverride,
+            level: leadScoreLevel(analysis.scoreOverride),
+            breakdown: [
+              {
+                ruleKey: 'manual_override',
+                label: 'Pontuação informada manualmente',
+                points: analysis.scoreOverride,
+              },
+            ],
+          };
+    await db
+      .update(digitalAnalyses)
+      .set({
+        leadScore: score.score,
+        scoreLevel: score.level,
+        scoreBreakdown: score.breakdown,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(digitalAnalyses.id, analysis.id),
+          eq(digitalAnalyses.ownerUserId, ownerUserId),
+        ),
+      );
+  }
+}
+
 export async function getAppData(ownerUserId: string) {
   const active = isNull;
   const [
     companyRows,
     archivedCompanyRows,
     contactRows,
+    digitalAnalysisRows,
     stageRows,
     opportunityRows,
+    pipelineHistoryRows,
+    referralRows,
+    leadScoreRuleRows,
     projectRows,
     domainRows,
     hostingRows,
@@ -149,6 +278,11 @@ export async function getAppData(ownerUserId: string) {
       .orderBy(desc(contacts.updatedAt)),
     db
       .select()
+      .from(digitalAnalyses)
+      .where(eq(digitalAnalyses.ownerUserId, ownerUserId))
+      .orderBy(desc(digitalAnalyses.leadScore)),
+    db
+      .select()
       .from(pipelineStages)
       .where(
         and(
@@ -167,6 +301,22 @@ export async function getAppData(ownerUserId: string) {
         ),
       )
       .orderBy(desc(opportunities.updatedAt)),
+    db
+      .select()
+      .from(pipelineHistory)
+      .where(eq(pipelineHistory.ownerUserId, ownerUserId))
+      .orderBy(desc(pipelineHistory.changedAt))
+      .limit(500),
+    db
+      .select()
+      .from(referrals)
+      .where(eq(referrals.ownerUserId, ownerUserId))
+      .orderBy(desc(referrals.createdAt)),
+    db
+      .select()
+      .from(leadScoreRules)
+      .where(eq(leadScoreRules.ownerUserId, ownerUserId))
+      .orderBy(leadScoreRules.position),
     db
       .select()
       .from(projects)
@@ -304,8 +454,12 @@ export async function getAppData(ownerUserId: string) {
     companies: companyRows,
     archivedCompanies: archivedCompanyRows,
     contacts: contactRows,
+    digitalAnalyses: digitalAnalysisRows,
     pipelineStages: stageRows,
     opportunities: opportunityRows,
+    pipelineHistory: pipelineHistoryRows,
+    referrals: referralRows,
+    leadScoreRules: leadScoreRuleRows,
     projects: projectRows,
     domains: domainRows,
     hostingServices: hostingRows,
@@ -333,6 +487,18 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
 
   if (input.action === 'create') {
     const parsed = parseEntityPayload(input.entity, input.data);
+    const linkedCompanyId = (parsed as { companyId?: string | null }).companyId;
+    if (linkedCompanyId) await ownedCompany(ownerUserId, linkedCompanyId);
+    if (input.entity === 'referrals') {
+      const referral = parsed as {
+        referrerCompanyId: string;
+        referredCompanyId: string;
+      };
+      await Promise.all([
+        ownedCompany(ownerUserId, referral.referrerCompanyId),
+        ownedCompany(ownerUserId, referral.referredCompanyId),
+      ]);
+    }
     const table = entityTables[input.entity];
     const proposalDates =
       input.entity === 'proposals'
@@ -340,11 +506,45 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
             status: (parsed as { status?: string }).status,
           })
         : {};
+    const analysisScore =
+      input.entity === 'digitalAnalyses'
+        ? await scoreAnalysis(
+            ownerUserId,
+            (parsed as { companyId: string }).companyId,
+            parsed as Parameters<typeof calculateLeadScore>[1],
+          )
+        : null;
     const values = {
       ...parsed,
       ...proposalDates,
+      ...(analysisScore
+        ? {
+            leadScore: analysisScore.score,
+            scoreLevel: analysisScore.level,
+            scoreBreakdown: analysisScore.breakdown,
+            analyzedAt: new Date(),
+          }
+        : {}),
+      ...(input.entity === 'referrals' &&
+      (parsed as { status?: string }).status === 'CONVERTIDO'
+        ? { convertedAt: new Date() }
+        : {}),
       ownerUserId,
-      ...(input.entity === 'interactions' ? { createdBy: ownerUserId } : {}),
+      ...(input.entity === 'interactions'
+        ? {
+            createdBy: ownerUserId,
+            responsibleUserId:
+              (parsed as { responsibleUserId?: string | null })
+                .responsibleUserId || ownerUserId,
+          }
+        : {}),
+      ...(input.entity === 'tasks'
+        ? {
+            responsibleUserId:
+              (parsed as { responsibleUserId?: string | null })
+                .responsibleUserId || ownerUserId,
+          }
+        : {}),
     } as typeof companies.$inferInsert;
     const [row] = await db
       .insert(table)
@@ -384,6 +584,8 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
           ),
         );
     }
+    if (input.entity === 'leadScoreRules')
+      await recalculateOwnerScores(ownerUserId);
     if (input.entity === 'interactions') {
       const interaction = parsed as {
         companyId: string;
@@ -436,9 +638,11 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
     const companyId =
       'companyId' in parsed && typeof parsed.companyId === 'string'
         ? parsed.companyId
-        : input.entity === 'companies'
-          ? row.id
-          : null;
+        : input.entity === 'referrals'
+          ? (parsed as { referredCompanyId: string }).referredCompanyId
+          : input.entity === 'companies'
+            ? row.id
+            : null;
     await logActivity({
       ownerUserId,
       companyId,
@@ -452,6 +656,18 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
 
   if (input.action === 'update') {
     const parsed = parseEntityPayload(input.entity, input.data, true);
+    const linkedCompanyId = (parsed as { companyId?: string | null }).companyId;
+    if (linkedCompanyId) await ownedCompany(ownerUserId, linkedCompanyId);
+    if (input.entity === 'referrals') {
+      const referral = parsed as {
+        referrerCompanyId?: string;
+        referredCompanyId?: string;
+      };
+      if (referral.referrerCompanyId)
+        await ownedCompany(ownerUserId, referral.referrerCompanyId);
+      if (referral.referredCompanyId)
+        await ownedCompany(ownerUserId, referral.referredCompanyId);
+    }
     const table = entityTables[input.entity];
     const [existing] = await db
       .select()
@@ -470,9 +686,41 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
             },
           })
         : {};
+    const mergedAnalysis =
+      input.entity === 'digitalAnalyses'
+        ? {
+            ...(existing as unknown as Parameters<
+              typeof calculateLeadScore
+            >[1]),
+            ...(parsed as Parameters<typeof calculateLeadScore>[1]),
+          }
+        : null;
+    const analysisScore = mergedAnalysis
+      ? await scoreAnalysis(
+          ownerUserId,
+          (existing as unknown as { companyId: string }).companyId,
+          mergedAnalysis,
+        )
+      : null;
     const set = {
       ...parsed,
       ...proposalDates,
+      ...(analysisScore
+        ? {
+            leadScore: analysisScore.score,
+            scoreLevel: analysisScore.level,
+            scoreBreakdown: analysisScore.breakdown,
+            analyzedAt: new Date(),
+          }
+        : {}),
+      ...(input.entity === 'referrals' &&
+      (parsed as { status?: string }).status === 'CONVERTIDO'
+        ? {
+            convertedAt:
+              (existing as unknown as { convertedAt?: Date | null })
+                .convertedAt || new Date(),
+          }
+        : {}),
       ...(Object.prototype.hasOwnProperty.call(table, 'updatedAt')
         ? { updatedAt: new Date() }
         : {}),
@@ -506,6 +754,10 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
             ),
           );
     }
+    if (input.entity === 'leadScoreRules')
+      await recalculateOwnerScores(ownerUserId);
+    if (input.entity === 'companies')
+      await recalculateOwnerScores(ownerUserId, input.id);
     const existingCompanyId = (
       existing as unknown as { companyId?: string | null }
     ).companyId;
@@ -513,7 +765,12 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
     const companyId =
       input.entity === 'companies'
         ? input.id
-        : parsedCompanyId || existingCompanyId || null;
+        : input.entity === 'referrals'
+          ? (parsed as { referredCompanyId?: string }).referredCompanyId ||
+            (existing as unknown as { referredCompanyId?: string })
+              .referredCompanyId ||
+            null
+          : parsedCompanyId || existingCompanyId || null;
     await logActivity({
       ownerUserId,
       companyId,
@@ -521,6 +778,17 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
       entityId: input.id,
       action: 'updated',
       description: `${input.entity} atualizado.`,
+      metadata:
+        input.entity === 'companies' &&
+        Object.prototype.hasOwnProperty.call(parsed, 'prospectingStatus')
+          ? {
+              previousProspectingStatus: (
+                existing as unknown as { prospectingStatus?: string }
+              ).prospectingStatus,
+              prospectingStatus: (parsed as { prospectingStatus?: string })
+                .prospectingStatus,
+            }
+          : {},
     });
     return row;
   }
@@ -550,6 +818,12 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
       throw new Error(
         'Este tipo de registro não pode ser arquivado por esta ação.',
       );
+    const [existing] = await db
+      .select()
+      .from(table)
+      .where(and(eq(table.id, input.id), eq(table.ownerUserId, ownerUserId)))
+      .limit(1);
+    if (!existing) throw new Error('Registro não encontrado.');
     const [row] = await db
       .update(table)
       .set({
@@ -561,6 +835,11 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
     if (!row) throw new Error('Registro não encontrado.');
     await logActivity({
       ownerUserId,
+      companyId:
+        input.entity === 'companies'
+          ? input.id
+          : (existing as unknown as { companyId?: string | null }).companyId ||
+            null,
       entityType: input.entity,
       entityId: input.id,
       action: input.action,
@@ -612,6 +891,15 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
           eq(opportunities.ownerUserId, ownerUserId),
         ),
       );
+    await db.insert(pipelineHistory).values({
+      ownerUserId,
+      companyId: opportunity.companyId,
+      opportunityId: opportunity.id,
+      fromStageId: opportunity.pipelineStageId,
+      toStageId: stage.id,
+      reason: input.lostReason || null,
+      changedBy: ownerUserId,
+    });
     if (transition.companyLifecycle)
       await db
         .update(companies)
