@@ -120,6 +120,7 @@ O módulo Relatórios/Configurações exporta CSV de empresas, contatos, projeto
 - [Auditoria do CRM](./docs/CRM-AUDIT.md)
 - [Guia do CRM](./docs/CRM-GUIDE.md)
 - [API privada do CRM](./docs/CRM-API.md)
+- [Relatório de implementação](./docs/CRM-IMPLEMENTATION.md)
 - [Banco de dados](./docs/DATABASE.md)
 - [Deploy](./docs/DEPLOYMENT.md)
 - [Automações](./docs/AUTOMATIONS.md)
