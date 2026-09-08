@@ -65,6 +65,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { authClient } from '@/lib/auth-client';
 import { whatsappUrl } from '@/lib/business';
 import { renderTemplate } from '@/lib/email-templates';
+import { ImportLeadsDialog } from '@/components/crm/import-leads-dialog';
+import { ProspectingPage } from '@/components/crm/prospecting-page';
 
 type Primitive = string | number | boolean | null | undefined;
 type Row = Record<string, Primitive> & { id: string };
@@ -84,6 +86,23 @@ type Company = Row & {
   email?: string | null;
   whatsapp?: string | null;
   contactFrequencyMonths?: number | null;
+  tradeName?: string | null;
+  industry?: string | null;
+  city?: string | null;
+  state?: string | null;
+  prospectingStatus: string;
+  primaryContactName?: string | null;
+  nextAction?: string | null;
+  nextActionAt?: string | null;
+};
+type DigitalAnalysis = Row & {
+  companyId: string;
+  siteStatus: string;
+  leadScore: number;
+  scoreLevel: string;
+  priority: string;
+  issues?: string | null;
+  opportunities?: string | null;
 };
 type Contact = Row & {
   companyId: string;
@@ -188,6 +207,29 @@ type Interaction = Row & {
   subject?: string | null;
   content: string;
   occurredAt: string;
+  result?: string | null;
+  notes?: string | null;
+};
+type Referral = Row & {
+  referrerCompanyId: string;
+  referredCompanyId: string;
+  status: string;
+  notes?: string | null;
+};
+type PipelineHistoryRow = Row & {
+  companyId: string;
+  opportunityId: string;
+  fromStageId?: string | null;
+  toStageId: string;
+  reason?: string | null;
+  changedAt: string;
+};
+type LeadScoreRuleRow = Row & {
+  ruleKey: string;
+  label: string;
+  points: number;
+  enabled: boolean;
+  position: number;
 };
 type Template = Row & {
   name: string;
@@ -230,8 +272,12 @@ type AppData = {
   companies: Company[];
   archivedCompanies: Company[];
   contacts: Contact[];
+  digitalAnalyses: DigitalAnalysis[];
   pipelineStages: Stage[];
   opportunities: Opportunity[];
+  pipelineHistory: PipelineHistoryRow[];
+  referrals: Referral[];
+  leadScoreRules: LeadScoreRuleRow[];
   projects: Project[];
   domains: Domain[];
   hostingServices: ServiceRow[];
@@ -256,6 +302,7 @@ type AppData = {
 type PageKey =
   | 'dashboard'
   | 'attention'
+  | 'prospecting'
   | 'companies'
   | 'projects'
   | 'pipeline'
@@ -268,6 +315,7 @@ type PageKey =
   | 'settings';
 type Entity =
   | 'companies'
+  | 'digitalAnalyses'
   | 'contacts'
   | 'pipelineStages'
   | 'opportunities'
@@ -282,6 +330,8 @@ type Entity =
   | 'meetings'
   | 'tasks'
   | 'interactions'
+  | 'referrals'
+  | 'leadScoreRules'
   | 'messageTemplates'
   | 'tags';
 type FormValues = Record<string, Primitive>;
@@ -313,6 +363,7 @@ type Field = {
 const nav: Array<[PageKey, string, typeof LayoutDashboard]> = [
   ['dashboard', 'Dashboard', LayoutDashboard],
   ['attention', 'Minha atenção', AlertTriangle],
+  ['prospecting', 'Prospecção', Search],
   ['companies', 'Clientes', Users],
   ['pipeline', 'Pipeline', Target],
   ['projects', 'Projetos', BriefcaseBusiness],
@@ -330,6 +381,10 @@ const titles: Record<PageKey, [string, string]> = {
   attention: [
     'Precisa da sua atenção',
     'Pendências ordenadas por urgência e data.',
+  ],
+  prospecting: [
+    'Prospecção comercial',
+    'Encontre oportunidades, priorize contatos e avance cada lead.',
   ],
   companies: [
     'Clientes e prospects',
@@ -367,6 +422,8 @@ export function OperationsApp({ initialUser }: { initialUser: User }) {
   const [company360, setCompany360] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [importContent, setImportContent] = useState<string | null>(null);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
@@ -488,45 +545,6 @@ export function OperationsApp({ initialUser }: { initialUser: User }) {
     router.replace('/login');
     router.refresh();
   }
-  async function importCompanies(file: File) {
-    const content = await file.text();
-    const validation = await fetch('/api/import/companies', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ content, confirm: false }),
-    });
-    const preview = (await validation.json()) as {
-      error?: string;
-      summary?: {
-        total: number;
-        valid: number;
-        invalid: number;
-        duplicates: number;
-      };
-    };
-    if (!validation.ok || !preview.summary)
-      return setToast(preview.error || 'CSV inválido.');
-    const summary = preview.summary;
-    if (summary.invalid || summary.duplicates)
-      return setToast(
-        `Prévia: ${summary.valid} válidas, ${summary.invalid} inválidas e ${summary.duplicates} possíveis duplicadas. Corrija o arquivo antes de importar.`,
-      );
-    if (!window.confirm(`Importar ${summary.valid} empresas validadas?`))
-      return;
-    const confirmed = await fetch('/api/import/companies', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ content, confirm: true }),
-    });
-    const result = (await confirmed.json()) as {
-      error?: string;
-      imported?: number;
-    };
-    if (!confirmed.ok) return setToast(result.error || 'Falha na importação.');
-    await loadData();
-    setToast(`${result.imported} empresas importadas.`);
-  }
-
   if (!data) return <LoadingScreen />;
   const company = company360
     ? data.companies.find((item) => item.id === company360) || null
@@ -730,6 +748,17 @@ export function OperationsApp({ initialUser }: { initialUser: User }) {
           {page === 'attention' && (
             <AttentionPage data={data} mutate={mutate} />
           )}
+          {page === 'prospecting' && (
+            <ProspectingPage
+              data={data}
+              openCreate={(entity, preset) =>
+                openCreate(entity, preset as FormValues)
+              }
+              openEdit={(entity, row) => openEdit(entity, row as Row)}
+              openCompany={setCompany360}
+              mutate={mutate}
+            />
+          )}
           {page === 'companies' && (
             <CompaniesPage
               data={data}
@@ -819,8 +848,24 @@ export function OperationsApp({ initialUser }: { initialUser: User }) {
         accept=".csv,text/csv"
         onChange={(event) => {
           const file = event.target.files?.[0];
-          if (file) void importCompanies(file);
+          if (file)
+            void file.text().then((content) => {
+              setImportFileName(file.name);
+              setImportContent(content);
+            });
           event.currentTarget.value = '';
+        }}
+      />
+      <ImportLeadsDialog
+        content={importContent}
+        fileName={importFileName}
+        onClose={() => {
+          setImportContent(null);
+          setImportFileName(null);
+        }}
+        onImported={async (message) => {
+          await loadData();
+          setToast(message);
         }}
       />
       <RecordDialog
@@ -900,6 +945,29 @@ function Dashboard({
     0,
   );
   const attention = attentionItems(data).slice(0, 7);
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const newLeads = data.companies.filter(
+    (item) => new Date(String(item.createdAt)) >= monthStart,
+  ).length;
+  const contactsThisMonth = data.interactions.filter(
+    (item) =>
+      new Date(item.occurredAt) >= monthStart &&
+      !['note', 'system'].includes(item.type),
+  ).length;
+  const closed = data.companies.filter(
+    (item) => item.prospectingStatus === 'FECHADO',
+  ).length;
+  const closedOrLost = data.companies.filter((item) =>
+    ['FECHADO', 'PERDIDO', 'SEM_INTERESSE', 'DESCARTADO'].includes(
+      item.prospectingStatus,
+    ),
+  ).length;
+  const projectRevenue = data.projects.reduce(
+    (sum, item) => sum + Number(item.soldValue || 0),
+    0,
+  );
   return (
     <>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -928,6 +996,73 @@ function Dashboard({
           icon={Banknote}
         />
       </section>
+      <div className="mt-5">
+        <Panel
+          title="Pulso comercial"
+          subtitle="Indicadores reais da sua prospecção"
+          action={
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setPage('prospecting')}
+            >
+              Abrir prospecção <ChevronRight />
+            </Button>
+          }
+        >
+          <div className="grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-5">
+            {[
+              ['Novos leads no mês', newLeads],
+              ['Contatos no mês', contactsThisMonth],
+              [
+                'Sem resposta',
+                data.companies.filter(
+                  (item) => item.prospectingStatus === 'SEM_RESPOSTA',
+                ).length,
+              ],
+              [
+                'Interessados',
+                data.companies.filter(
+                  (item) => item.prospectingStatus === 'INTERESSADO',
+                ).length,
+              ],
+              [
+                'Reuniões',
+                data.companies.filter((item) =>
+                  ['REUNIAO_AGENDADA', 'REUNIAO_REALIZADA'].includes(
+                    item.prospectingStatus,
+                  ),
+                ).length,
+              ],
+              [
+                'Propostas',
+                data.proposals.filter((item) =>
+                  ['sent', 'negotiation'].includes(item.status),
+                ).length,
+              ],
+              [
+                'Em negociação',
+                data.companies.filter(
+                  (item) => item.prospectingStatus === 'NEGOCIACAO',
+                ).length,
+              ],
+              ['Clientes fechados', closed],
+              [
+                'Taxa de conversão',
+                `${closedOrLost ? Math.round((closed / closedOrLost) * 100) : 0}%`,
+              ],
+              ['Receita de projetos', money(projectRevenue)],
+            ].map(([metricLabel, value]) => (
+              <div key={metricLabel} className="bg-card p-4">
+                <p className="text-[11px] text-muted-foreground">
+                  {metricLabel}
+                </p>
+                <p className="mt-1 text-lg font-semibold">{value}</p>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
       <section className="mt-7 grid gap-5 xl:grid-cols-[1.45fr_.85fr]">
         <Panel
           title="Precisa da sua atenção"
@@ -979,18 +1114,83 @@ function AttentionPage({
   mutate: (payload: object, success?: string) => Promise<void>;
 }) {
   const items = attentionItems(data);
+  const actionableTasks = data.tasks.filter(
+    (task) => task.status === 'open' || task.status === 'snoozed',
+  );
+  const overdue = actionableTasks.filter(
+    (task) => taskGroup(task) === 'overdue',
+  );
+  const today = actionableTasks.filter((task) => taskGroup(task) === 'today');
+  const upcoming = actionableTasks.filter(
+    (task) => taskGroup(task) === 'upcoming',
+  );
+  const contactedCompanies = new Set(
+    data.interactions.map((interaction) => interaction.companyId),
+  );
+  const withoutAction = data.companies.filter(
+    (company) =>
+      !contactedCompanies.has(company.id) &&
+      !company.nextActionAt &&
+      !company.nextContactAt,
+  );
   return (
-    <Panel
-      title="Fila de atenção"
-      subtitle="Cobranças, domínios, tarefas, follow-ups e reuniões"
-    >
-      <AttentionList
-        items={items}
-        onComplete={(id) =>
-          mutate({ action: 'completeTask', id }, 'Tarefa concluída.')
-        }
-      />
-    </Panel>
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          ['Atrasados', overdue.length],
+          ['Para hoje', today.length],
+          ['Futuros', upcoming.length],
+          ['Leads sem ação', withoutAction.length],
+        ].map(([text, value]) => (
+          <div key={text} className="rounded-xl border bg-card p-4">
+            <p className="text-xs text-muted-foreground">{text}</p>
+            <p className="mt-1 text-2xl font-semibold">{value}</p>
+          </div>
+        ))}
+      </div>
+      <Panel
+        title="Fila de atenção"
+        subtitle="Cobranças, domínios, tarefas, follow-ups e reuniões"
+      >
+        <AttentionList
+          items={items}
+          onComplete={(id) =>
+            mutate({ action: 'completeTask', id }, 'Tarefa concluída.')
+          }
+        />
+      </Panel>
+      <Panel
+        title="Leads sem nenhuma ação"
+        subtitle="Cadastros que ainda não têm contato nem próximo passo"
+      >
+        <div className="divide-y">
+          {withoutAction.slice(0, 20).map((company) => (
+            <div
+              key={company.id}
+              className="flex items-center justify-between gap-3 p-4"
+            >
+              <div>
+                <p className="text-sm font-medium">
+                  {company.tradeName || company.name}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {company.industry || 'Sem segmento'} ·{' '}
+                  {company.city || 'Sem cidade'}
+                </p>
+              </div>
+              <Badge variant="outline">
+                {label(company.prospectingStatus)}
+              </Badge>
+            </div>
+          ))}
+          {!withoutAction.length && (
+            <p className="p-6 text-center text-sm text-muted-foreground">
+              Todos os leads já têm um contato ou próximo passo.
+            </p>
+          )}
+        </div>
+      </Panel>
+    </div>
   );
 }
 
@@ -1050,9 +1250,11 @@ function CompaniesPage({
         onChange={setFilter}
         options={[
           ['all', 'Todos'],
+          ['lead', 'Leads'],
           ['client', 'Clientes'],
           ['prospect', 'Prospects'],
           ['former_client', 'Ex-clientes'],
+          ['partner', 'Parceiros'],
           ['recurring', 'Recorrentes'],
           ['no_contact', 'Sem contato'],
           ['archived', 'Arquivadas'],
@@ -2573,6 +2775,51 @@ function SettingsPage({
           </div>
         </div>
       </Panel>
+      <Panel
+        title="Pontuação de leads"
+        subtitle="Regras usadas para priorizar oportunidades"
+      >
+        <div className="divide-y">
+          {data.leadScoreRules.map((rule) => (
+            <div key={rule.id} className="flex items-center gap-3 p-4">
+              <span
+                className={`size-2 rounded-full ${rule.enabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+              />
+              <span className="min-w-0 flex-1 text-sm">
+                <span className="block truncate font-medium">{rule.label}</span>
+                <span className="text-xs text-muted-foreground">
+                  {rule.enabled ? 'Ativa' : 'Desativada'}
+                </span>
+              </span>
+              <Badge variant={rule.points >= 0 ? 'outline' : 'destructive'}>
+                {rule.points > 0 ? '+' : ''}
+                {rule.points}
+              </Badge>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => openEdit('leadScoreRules', rule)}
+              >
+                <Settings />
+              </Button>
+            </div>
+          ))}
+          {!data.leadScoreRules.length && (
+            <p className="p-4 text-sm text-muted-foreground">
+              As regras padrão serão criadas ao aplicar a migração.
+            </p>
+          )}
+          <div className="p-4">
+            <Button
+              variant="outline"
+              onClick={() => openCreate('leadScoreRules')}
+            >
+              <Plus />
+              Nova regra
+            </Button>
+          </div>
+        </div>
+      </Panel>
     </div>
   );
 }
@@ -2596,11 +2843,18 @@ function Company360Dialog({
   const linked = <T extends { companyId?: string | null }>(rows: T[]) =>
     rows.filter((row) => row.companyId === company.id);
   const companyChargeIds = new Set(linked(data.charges).map((item) => item.id));
+  const analysis =
+    data.digitalAnalyses.find((item) => item.companyId === company.id) || null;
+  const companyReferrals = data.referrals.filter(
+    (item) =>
+      item.referrerCompanyId === company.id ||
+      item.referredCompanyId === company.id,
+  );
   const timeline = [
     ...linked(data.interactions).map((item) => ({
       id: item.id,
       date: item.occurredAt,
-      text: item.content,
+      text: `${item.content}${item.result ? ` · Resultado: ${item.result}` : ''}`,
       type: item.type,
     })),
     ...linked(data.activities).map((item) => ({
@@ -2627,6 +2881,14 @@ function Company360Dialog({
       text: `Tarefa ${item.title}: ${label(item.status)}`,
       type: 'task',
     })),
+    ...data.pipelineHistory
+      .filter((item) => item.companyId === company.id)
+      .map((item) => ({
+        id: item.id,
+        date: item.changedAt,
+        text: `Funil movido para ${data.pipelineStages.find((stage) => stage.id === item.toStageId)?.name || 'nova etapa'}${item.reason ? ` · ${item.reason}` : ''}`,
+        type: 'pipeline',
+      })),
     ...data.payments
       .filter((item) => companyChargeIds.has(item.chargeId))
       .map((item) => ({
@@ -2674,11 +2936,61 @@ function Company360Dialog({
               label="Status"
               value={`${label(company.lifecycleStatus)} · ${label(company.relationshipStatus)}`}
             />
+            <InfoRow
+              label="Prospecção"
+              value={label(company.prospectingStatus)}
+            />
+            <InfoRow
+              label="Contato"
+              value={String(company.primaryContactName || '—')}
+            />
             <InfoRow label="Site" value={company.website || '—'} />
             <InfoRow
               label="Próximo contato"
               value={datePt(company.nextContactAt)}
             />
+          </MiniSection>
+          <MiniSection
+            title="Análise digital"
+            action={
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() =>
+                  analysis
+                    ? openEdit('digitalAnalyses', analysis)
+                    : openCreate('digitalAnalyses', {
+                        companyId: company.id,
+                        hasSite: Boolean(company.website),
+                        websiteUrl: company.website || '',
+                      })
+                }
+              >
+                {analysis ? 'Editar' : 'Analisar'}
+              </Button>
+            }
+          >
+            <InfoRow
+              label="Site"
+              value={analysis ? label(analysis.siteStatus) : 'Não analisado'}
+            />
+            <InfoRow
+              label="Lead score"
+              value={
+                analysis
+                  ? `${analysis.leadScore}/100 · ${label(analysis.scoreLevel)}`
+                  : '0/100 · Baixa'
+              }
+            />
+            <InfoRow
+              label="Prioridade"
+              value={analysis ? label(analysis.priority) : 'Baixa'}
+            />
+            {analysis?.opportunities && (
+              <p className="rounded-lg bg-muted/50 p-2 text-xs text-muted-foreground">
+                {analysis.opportunities}
+              </p>
+            )}
           </MiniSection>
           <MiniSection
             title="Contatos"
@@ -2847,6 +3159,25 @@ function Company360Dialog({
             rows={linked(data.tasks)}
             render={(row) => `${row.title} · ${dateTimePt(row.dueAt)}`}
             onAdd={() => openCreate('tasks', { companyId: company.id })}
+          />
+          <LinkedSection
+            title="Indicações"
+            rows={companyReferrals}
+            render={(row) => {
+              const otherId =
+                row.referrerCompanyId === company.id
+                  ? row.referredCompanyId
+                  : row.referrerCompanyId;
+              const direction =
+                row.referrerCompanyId === company.id
+                  ? 'Indicou'
+                  : 'Indicado por';
+              return `${direction} ${companyName(data, otherId)} · ${label(row.status)}`;
+            }}
+            onAdd={() =>
+              openCreate('referrals', { referrerCompanyId: company.id })
+            }
+            onEdit={(row) => openEdit('referrals', row as Row)}
           />
           <LinkedSection
             title="Hospedagem"
@@ -3611,6 +3942,7 @@ function fields(entity: Entity): Field[] {
   const map: Record<Entity, Field[]> = {
     companies: [
       { key: 'name', label: 'Nome da empresa', required: true },
+      { key: 'tradeName', label: 'Nome fantasia' },
       { key: 'legalName', label: 'Razão social' },
       { key: 'document', label: 'CPF/CNPJ' },
       {
@@ -3618,10 +3950,18 @@ function fields(entity: Entity): Field[] {
         label: 'Lifecycle',
         type: 'select',
         options: [
+          ['lead', 'Lead'],
           ['prospect', 'Prospect'],
           ['client', 'Cliente'],
           ['former_client', 'Ex-cliente'],
+          ['partner', 'Parceiro'],
         ],
+      },
+      {
+        key: 'prospectingStatus',
+        label: 'Etapa da prospecção',
+        type: 'select',
+        options: prospectingStatusOptions,
       },
       {
         key: 'relationshipStatus',
@@ -3644,13 +3984,16 @@ function fields(entity: Entity): Field[] {
         ],
       },
       { key: 'website', label: 'Site', type: 'url' },
+      { key: 'instagram', label: 'Instagram' },
       { key: 'email', label: 'E-mail', type: 'email' },
       { key: 'phone', label: 'Telefone' },
       { key: 'whatsapp', label: 'WhatsApp' },
       { key: 'city', label: 'Cidade' },
       { key: 'state', label: 'UF' },
       { key: 'industry', label: 'Segmento' },
+      { key: 'primaryContactName', label: 'Responsável/contato' },
       { key: 'leadSource', label: 'Origem' },
+      { key: 'sourceUrl', label: 'URL da origem', type: 'url' },
       { key: 'nextAction', label: 'Próxima ação', wide: true },
       { key: 'nextActionAt', label: 'Quando', type: 'datetime-local' },
       {
@@ -3663,6 +4006,67 @@ function fields(entity: Entity): Field[] {
         label: 'Resumo/observações',
         type: 'textarea',
         wide: true,
+      },
+    ],
+    digitalAnalyses: [
+      company,
+      { key: 'hasSite', label: 'Possui site', type: 'checkbox' },
+      { key: 'websiteUrl', label: 'URL analisada', type: 'url' },
+      {
+        key: 'siteStatus',
+        label: 'Status do site',
+        type: 'select',
+        options: siteStatusOptions,
+      },
+      { key: 'overallQuality', label: 'Qualidade geral (0–5)', type: 'number' },
+      { key: 'mobileQuality', label: 'Mobile (0–5)', type: 'number' },
+      { key: 'speedQuality', label: 'Velocidade (0–5)', type: 'number' },
+      { key: 'designQuality', label: 'Design (0–5)', type: 'number' },
+      {
+        key: 'valuePropositionQuality',
+        label: 'Clareza da proposta (0–5)',
+        type: 'number',
+      },
+      { key: 'ctaQuality', label: 'CTA (0–5)', type: 'number' },
+      {
+        key: 'hasWhatsappIntegration',
+        label: 'Integra WhatsApp',
+        type: 'checkbox',
+      },
+      { key: 'hasBasicSeo', label: 'SEO básico', type: 'checkbox' },
+      { key: 'hasHttps', label: 'Usa HTTPS', type: 'checkbox' },
+      {
+        key: 'hasBrokenLinks',
+        label: 'Possui links quebrados',
+        type: 'checkbox',
+      },
+      {
+        key: 'hasActiveDigitalPresence',
+        label: 'Presença digital ativa',
+        type: 'checkbox',
+      },
+      {
+        key: 'issues',
+        label: 'Principais problemas',
+        type: 'textarea',
+        wide: true,
+      },
+      {
+        key: 'opportunities',
+        label: 'Oportunidades de melhoria',
+        type: 'textarea',
+        wide: true,
+      },
+      {
+        key: 'scoreOverride',
+        label: 'Pontuação manual (opcional)',
+        type: 'number',
+      },
+      {
+        key: 'priority',
+        label: 'Prioridade',
+        type: 'select',
+        options: scoreLevelOptions,
       },
     ],
     contacts: [
@@ -4043,6 +4447,13 @@ function fields(entity: Entity): Field[] {
         ],
       },
       { key: 'description', label: 'Descrição', type: 'textarea', wide: true },
+      {
+        key: 'reason',
+        label: 'Motivo do follow-up',
+        type: 'textarea',
+        wide: true,
+      },
+      { key: 'reminderAt', label: 'Lembrar em', type: 'datetime-local' },
     ],
     interactions: [
       company,
@@ -4055,6 +4466,7 @@ function fields(entity: Entity): Field[] {
           ['whatsapp', 'WhatsApp'],
           ['email', 'E-mail'],
           ['call', 'Ligação'],
+          ['instagram', 'Instagram'],
           ['meeting', 'Reunião'],
           ['note', 'Nota'],
           ['system', 'Sistema'],
@@ -4070,8 +4482,50 @@ function fields(entity: Entity): Field[] {
         required: true,
       },
       { key: 'occurredAt', label: 'Quando', type: 'datetime-local' },
+      { key: 'result', label: 'Resultado', type: 'textarea', wide: true },
+      {
+        key: 'notes',
+        label: 'Observação interna',
+        type: 'textarea',
+        wide: true,
+      },
       { key: 'nextAction', label: 'Próxima ação' },
       { key: 'nextActionAt', label: 'Quando', type: 'datetime-local' },
+    ],
+    referrals: [
+      {
+        key: 'referrerCompanyId',
+        label: 'Quem indicou',
+        type: 'select',
+        source: 'companies',
+        required: true,
+      },
+      {
+        key: 'referredCompanyId',
+        label: 'Empresa indicada',
+        type: 'select',
+        source: 'companies',
+        required: true,
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        type: 'select',
+        options: [
+          ['PENDENTE', 'Pendente'],
+          ['CONTATADO', 'Contatado'],
+          ['CONVERTIDO', 'Virou cliente'],
+          ['PERDIDO', 'Perdido'],
+        ],
+      },
+      { key: 'notes', label: 'Observações', type: 'textarea', wide: true },
+    ],
+    leadScoreRules: [
+      { key: 'ruleKey', label: 'Identificador', required: true },
+      { key: 'label', label: 'Regra', required: true },
+      { key: 'points', label: 'Pontos', type: 'number', required: true },
+      { key: 'position', label: 'Ordem', type: 'number', required: true },
+      { key: 'enabled', label: 'Regra ativa', type: 'checkbox' },
     ],
     messageTemplates: [
       { key: 'name', label: 'Nome', required: true },
@@ -4101,6 +4555,43 @@ function fields(entity: Entity): Field[] {
   };
   return map[entity];
 }
+const prospectingStatusOptions: Array<[string, string]> = [
+  ['NOVO_LEAD', 'Novo lead'],
+  ['PESQUISANDO', 'Pesquisando'],
+  ['PRONTO_PARA_CONTATO', 'Pronto para contato'],
+  ['CONTATO_WHATSAPP', 'Contato por WhatsApp'],
+  ['CONTATO_EMAIL', 'Contato por e-mail'],
+  ['CONTATO_TELEFONE', 'Contato por telefone'],
+  ['SEM_RESPOSTA', 'Sem resposta'],
+  ['RESPONDEU', 'Respondeu'],
+  ['INTERESSADO', 'Interessado'],
+  ['REUNIAO_AGENDADA', 'Reunião agendada'],
+  ['REUNIAO_REALIZADA', 'Reunião realizada'],
+  ['PROPOSTA_ENVIADA', 'Proposta enviada'],
+  ['NEGOCIACAO', 'Negociação'],
+  ['FOLLOWUP_FUTURO', 'Follow-up futuro'],
+  ['FECHADO', 'Fechado'],
+  ['PERDIDO', 'Perdido'],
+  ['DESCARTADO', 'Descartado'],
+  ['NUMERO_INVALIDO', 'Número inválido'],
+  ['EMAIL_INVALIDO', 'E-mail inválido'],
+  ['JA_POSSUI_FORNECEDOR', 'Já possui fornecedor'],
+  ['SEM_INTERESSE', 'Sem interesse'],
+];
+const siteStatusOptions: Array<[string, string]> = [
+  ['SEM_SITE', 'Sem site'],
+  ['SITE_RUIM', 'Site ruim'],
+  ['SITE_DEFASADO', 'Site defasado'],
+  ['SITE_MEDIANO', 'Site mediano'],
+  ['SITE_BOM', 'Site bom'],
+  ['NAO_ANALISADO', 'Não analisado'],
+];
+const scoreLevelOptions: Array<[string, string]> = [
+  ['BAIXA', 'Baixa'],
+  ['MEDIA', 'Média'],
+  ['ALTA', 'Alta'],
+  ['MUITO_ALTA', 'Muito alta'],
+];
 const frequencyOptions: Array<[string, string]> = [
   ['monthly', 'Mensal'],
   ['quarterly', 'Trimestral'],
@@ -4135,9 +4626,21 @@ function defaults(entity: Entity, data: AppData | null): FormValues {
   const firstStage = data?.pipelineStages[0]?.id || '';
   const map: Record<Entity, FormValues> = {
     companies: {
-      lifecycleStatus: 'prospect',
+      lifecycleStatus: 'lead',
       relationshipStatus: 'inactive',
       healthStatus: 'good',
+      prospectingStatus: 'NOVO_LEAD',
+    },
+    digitalAnalyses: {
+      companyId: firstCompany,
+      hasSite: false,
+      siteStatus: 'NAO_ANALISADO',
+      priority: 'BAIXA',
+      hasWhatsappIntegration: false,
+      hasBasicSeo: false,
+      hasHttps: false,
+      hasBrokenLinks: false,
+      hasActiveDigitalPresence: false,
     },
     contacts: {
       companyId: firstCompany,
@@ -4226,6 +4729,16 @@ function defaults(entity: Entity, data: AppData | null): FormValues {
       type: 'note',
       occurredAt: `${today}T12:00`,
     },
+    referrals: {
+      referrerCompanyId: firstCompany,
+      referredCompanyId: data?.companies[1]?.id || '',
+      status: 'PENDENTE',
+    },
+    leadScoreRules: {
+      points: 0,
+      position: data?.leadScoreRules.length || 0,
+      enabled: true,
+    },
     messageTemplates: { channel: 'whatsapp' },
     tags: { color: '#64748b' },
   };
@@ -4236,6 +4749,7 @@ function defaultEntity(page: PageKey): Entity {
     {
       dashboard: 'companies',
       attention: 'tasks',
+      prospecting: 'companies',
       companies: 'companies',
       projects: 'projects',
       pipeline: 'opportunities',
@@ -4253,6 +4767,7 @@ function entityLabel(entity: Entity) {
   return (
     {
       companies: 'cliente ou prospect',
+      digitalAnalyses: 'análise digital',
       contacts: 'contato',
       pipelineStages: 'etapa do pipeline',
       opportunities: 'oportunidade',
@@ -4267,6 +4782,8 @@ function entityLabel(entity: Entity) {
       meetings: 'reunião',
       tasks: 'tarefa',
       interactions: 'interação ou nota',
+      referrals: 'indicação',
+      leadScoreRules: 'regra de pontuação',
       messageTemplates: 'template',
       tags: 'tag',
     } as Record<Entity, string>
