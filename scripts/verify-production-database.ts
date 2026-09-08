@@ -112,6 +112,7 @@ const countRows = await Promise.all(
     ...commercialTables,
     'users',
     'pipeline_stages',
+    'lead_score_rules',
     'message_templates',
     'settings',
   ].map(async (table) => {
