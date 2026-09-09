@@ -100,3 +100,19 @@ Duplicidades são verificadas por telefone/WhatsApp, e-mail, domínio normalizad
 - Empresas relacionadas são conferidas contra o proprietário autenticado.
 - Pagamentos não fazem parte do CRUD genérico; somente `markPaid` registra pagamento e quitação.
 - Pontuação e datas de conversão são calculadas no servidor.
+
+## Pesquisa assistida de prospecção
+
+As rotas abaixo fazem parte da API versionada de agentes e exigem os scopes novos. Elas recebem e organizam pesquisa pública feita por um agente; não fazem scraping massivo e nunca enviam mensagens.
+
+| Método | Endpoint | Scope | Uso |
+| --- | --- | --- | --- |
+| `GET` | `/api/agent/v1/prospecting-batches` | `crm:prospecting:read` | Listar lotes |
+| `POST` | `/api/agent/v1/prospecting-batches` | `crm:prospecting:write` | Criar lote; exige `Idempotency-Key` |
+| `GET` | `/api/agent/v1/prospecting-batches/:id` | `crm:prospecting:read` | Consultar lote e contagens |
+| `GET` | `/api/agent/v1/prospecting-batches/:id/candidates` | `crm:prospecting:read` | Listar candidatos |
+| `POST` | `/api/agent/v1/prospecting-batches/:id/candidates` | `crm:prospecting:write` | Adicionar candidato com ao menos uma URL de evidência |
+| `PATCH` | `/api/agent/v1/prospecting-candidates/:id` | `crm:prospecting:write` | Revisar com `expectedUpdatedAt` e idempotência |
+| `POST` | `/api/agent/v1/prospecting-candidates/:id/promote` | `crm:prospecting:write` | Deduplicar e promover para o mesmo cadastro de lead |
+
+Dados de candidato são limitados a contatos empresariais publicamente divulgados. A promoção preserva evidências, score e origem; uma mensagem, quando presente, é apenas `suggestedMessage`.

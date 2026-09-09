@@ -64,6 +64,13 @@
       "when": 1788928773845,
       "tag": "0008_small_stingray",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788981086135,
+      "tag": "0009_many_crystal",
+      "breakpoints": true
     }
   ]
 }

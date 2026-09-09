@@ -1,5 +1,7 @@
 # Guia rápido do CRM
 
+O manual operacional completo e não técnico está em [CRM-USER-GUIDE.md](./CRM-USER-GUIDE.md).
+
 ## Fluxo recomendado
 
 1. Abra **Prospecção** e cadastre ou importe os leads.
@@ -9,6 +11,7 @@
 5. Sempre deixe uma próxima ação ou um follow-up com data.
 6. Consulte **Minha atenção** diariamente para atrasados, itens de hoje, futuros e leads sem ação.
 7. Quando houver uma venda, mova a oportunidade para a etapa de ganho; a empresa passa a cliente.
+8. Para pesquisa assistida, crie um lote em **Prospecção**, peça ao Codex para incluir candidatos com fontes públicas e revise antes de transformar em lead.
 
 ## Importação CSV
 

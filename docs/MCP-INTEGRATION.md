@@ -62,12 +62,14 @@ Uma chamada anônima a `POST /mcp` retorna `401` com `WWW-Authenticate` e `resou
 | `crm:followups:read` | consultar follow-ups e Minha Atenção |
 | `crm:analysis:read` | consultar lead score |
 | `crm:metrics:read` | consultar métricas comerciais |
+| `crm:prospecting:read` | consultar lotes e candidatos pesquisados |
 | `crm:leads:write` | cadastrar/atualizar lead e alterar etapa |
 | `crm:pipeline:write` | mover oportunidade |
 | `crm:interactions:write` | criar contato e registrar resultado |
 | `crm:followups:write` | criar follow-up |
 | `crm:referrals:write` | registrar indicação |
 | `crm:analysis:write` | criar/atualizar análise digital |
+| `crm:prospecting:write` | criar lotes, incluir/revisar/promover candidatos |
 
 Também são anunciados `openid`, `profile`, `email` e `offline_access`. A lista retornada por `tools/list` contém somente as ferramentas permitidas pelos scopes efetivamente concedidos.
 
@@ -85,6 +87,9 @@ Também são anunciados `openid`, `profile`, `email` e `offline_access`. A lista
 | `crm_get_lead_score` | `crm:analysis:read` | `leadId` |
 | `crm_get_attention` | `crm:followups:read` | tipo, prioridade, período, limite |
 | `crm_get_commercial_metrics` | `crm:metrics:read` | período e comparação |
+| `crm_list_prospecting_batches` | `crm:prospecting:read` | status e paginação |
+| `crm_get_prospecting_batch` | `crm:prospecting:read` | `batchId` |
+| `crm_list_prospecting_candidates` | `crm:prospecting:read` | `batchId`, status e paginação |
 
 ### Escritas operacionais automáticas
 
@@ -99,6 +104,12 @@ Também são anunciados `openid`, `profile`, `email` e `offline_access`. A lista
 | `crm_create_follow_up` | `crm:followups:write` | `idempotencyKey`, `followUp` |
 | `crm_create_referral` | `crm:referrals:write` | `idempotencyKey`, `referral` |
 | `crm_upsert_digital_analysis` | `crm:analysis:write` | `idempotencyKey`, `leadId`, `analysis` |
+| `crm_create_prospecting_batch` | `crm:prospecting:write` | `idempotencyKey`, `batch` |
+| `crm_add_prospecting_candidate` | `crm:prospecting:write` | `idempotencyKey`, `candidate` com evidências |
+| `crm_update_prospecting_candidate` | `crm:prospecting:write` | `idempotencyKey`, `candidateId`, `patch` |
+| `crm_promote_prospecting_candidate` | `crm:prospecting:write` | `idempotencyKey`, `candidateId` |
+
+Os dois scopes de prospecção não são acrescentados a autorizações antigas. Depois da implantação, o consumidor precisa iniciar um novo consentimento OAuth para recebê-los. As ferramentas organizam pesquisa pública e não enviam WhatsApp, e-mail ou qualquer mensagem.
 
 As anotações MCP marcam leituras como `readOnly`, e as escritas atuais como não destrutivas, idempotentes e sem acesso aberto à internet. Essas anotações são dicas ao cliente; o servidor sempre aplica a autorização de forma determinística.
 

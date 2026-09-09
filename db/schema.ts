@@ -87,6 +87,17 @@ export const referralStatus = pgEnum('referral_status', [
   'CONVERTIDO',
   'PERDIDO',
 ]);
+export const prospectingBatchStatus = pgEnum('prospecting_batch_status', [
+  'draft',
+  'researching',
+  'review',
+  'completed',
+  'cancelled',
+]);
+export const prospectingCandidateStatus = pgEnum(
+  'prospecting_candidate_status',
+  ['review', 'approved', 'ignored', 'later', 'promoted'],
+);
 export const projectType = pgEnum('project_type', [
   'landing_page',
   'institutional',
@@ -318,7 +329,9 @@ export const oauthClients = pgTable(
     enableEndSession: boolean('enable_end_session'),
     subjectType: text('subject_type'),
     scopes: text('scopes').array(),
-    clientCredentialsScopes: text('client_credentials_scopes').array().default([]),
+    clientCredentialsScopes: text('client_credentials_scopes')
+      .array()
+      .default([]),
     userId: uuid('user_id').references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }),
@@ -334,7 +347,9 @@ export const oauthClients = pgTable(
     redirectUris: text('redirect_uris').array().notNull(),
     postLogoutRedirectUris: text('post_logout_redirect_uris').array(),
     backchannelLogoutUri: text('backchannel_logout_uri'),
-    backchannelLogoutSessionRequired: boolean('backchannel_logout_session_required'),
+    backchannelLogoutSessionRequired: boolean(
+      'backchannel_logout_session_required',
+    ),
     tokenEndpointAuthMethod: text('token_endpoint_auth_method'),
     applicationType: text('application_type'),
     jwks: text('jwks'),
@@ -364,14 +379,18 @@ export const oauthResources = pgTable(
     signingKeyId: text('signing_key_id'),
     allowedScopes: text('allowed_scopes').array(),
     customClaims: jsonb('custom_claims').$type<Record<string, unknown>>(),
-    dpopBoundAccessTokensRequired: boolean('dpop_bound_access_tokens_required').default(false),
+    dpopBoundAccessTokensRequired: boolean(
+      'dpop_bound_access_tokens_required',
+    ).default(false),
     disabled: boolean('disabled').default(false),
     createdAt: timestamp('created_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }),
     policyVersion: integer('policy_version').default(1),
     metadata: jsonb('metadata').$type<Record<string, unknown>>(),
   },
-  (table) => [uniqueIndex('oauth_resources_identifier_uq').on(table.identifier)],
+  (table) => [
+    uniqueIndex('oauth_resources_identifier_uq').on(table.identifier),
+  ],
 );
 
 export const oauthClientResources = pgTable(
@@ -388,7 +407,10 @@ export const oauthClientResources = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }),
   },
   (table) => [
-    uniqueIndex('oauth_client_resources_pair_uq').on(table.clientId, table.resourceId),
+    uniqueIndex('oauth_client_resources_pair_uq').on(
+      table.clientId,
+      table.resourceId,
+    ),
     index('oauth_client_resources_client_idx').on(table.clientId),
     index('oauth_client_resources_resource_idx').on(table.resourceId),
   ],
@@ -402,8 +424,12 @@ export const oauthRefreshTokens = pgTable(
     clientId: text('client_id')
       .notNull()
       .references(() => oauthClients.clientId),
-    sessionId: uuid('session_id').references(() => sessions.id, { onDelete: 'set null' }),
-    userId: uuid('user_id').notNull().references(() => users.id),
+    sessionId: uuid('session_id').references(() => sessions.id, {
+      onDelete: 'set null',
+    }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
     referenceId: text('reference_id'),
     authorizationCodeId: text('authorization_code_id'),
     resources: text('resources').array(),
@@ -413,7 +439,9 @@ export const oauthRefreshTokens = pgTable(
     revoked: timestamp('revoked', { withTimezone: true }),
     rotatedAt: timestamp('rotated_at', { withTimezone: true }),
     rotationReplayResponse: text('rotation_replay_response'),
-    rotationReplayExpiresAt: timestamp('rotation_replay_expires_at', { withTimezone: true }),
+    rotationReplayExpiresAt: timestamp('rotation_replay_expires_at', {
+      withTimezone: true,
+    }),
     authTime: timestamp('auth_time', { withTimezone: true }),
     confirmation: jsonb('confirmation').$type<Record<string, unknown>>(),
     scopes: text('scopes').array().notNull(),
@@ -432,8 +460,12 @@ export const oauthAccessTokens = pgTable(
   {
     id: id(),
     token: text('token').notNull(),
-    clientId: text('client_id').notNull().references(() => oauthClients.clientId),
-    sessionId: uuid('session_id').references(() => sessions.id, { onDelete: 'set null' }),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => oauthClients.clientId),
+    sessionId: uuid('session_id').references(() => sessions.id, {
+      onDelete: 'set null',
+    }),
     userId: uuid('user_id').references(() => users.id),
     referenceId: text('reference_id'),
     authorizationCodeId: text('authorization_code_id'),
@@ -460,7 +492,9 @@ export const oauthConsents = pgTable(
   'oauth_consents',
   {
     id: id(),
-    clientId: text('client_id').notNull().references(() => oauthClients.clientId),
+    clientId: text('client_id')
+      .notNull()
+      .references(() => oauthClients.clientId),
     userId: uuid('user_id').references(() => users.id),
     referenceId: text('reference_id'),
     resources: text('resources').array(),
@@ -975,6 +1009,111 @@ export const referrals = pgTable(
     check(
       'referrals_not_self',
       sql`${table.referrerCompanyId} <> ${table.referredCompanyId}`,
+    ),
+  ],
+);
+
+export type ProspectingEvidence = {
+  url: string;
+  label?: string | null;
+  note?: string | null;
+};
+
+export const prospectingBatches = pgTable(
+  'prospecting_batches',
+  {
+    id: id(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    industry: text('industry'),
+    city: text('city'),
+    state: varchar('state', { length: 2 }),
+    desiredQuantity: integer('desired_quantity').default(20).notNull(),
+    criteria: text('criteria'),
+    status: prospectingBatchStatus('status').default('draft').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    index('prospecting_batches_owner_status_idx').on(
+      table.ownerUserId,
+      table.status,
+      table.updatedAt,
+    ),
+    check(
+      'prospecting_batches_quantity_range',
+      sql`${table.desiredQuantity} between 1 and 100`,
+    ),
+  ],
+);
+
+export const prospectingCandidates = pgTable(
+  'prospecting_candidates',
+  {
+    id: id(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => prospectingBatches.id, { onDelete: 'cascade' }),
+    companyName: text('company_name').notNull(),
+    industry: text('industry'),
+    city: text('city'),
+    state: varchar('state', { length: 2 }),
+    publicPhone: varchar('public_phone', { length: 32 }),
+    publicEmail: varchar('public_email', { length: 320 }),
+    website: text('website'),
+    instagram: text('instagram'),
+    otherNetworks: jsonb('other_networks')
+      .$type<Array<{ label: string; url: string }>>()
+      .default([])
+      .notNull(),
+    digitalPresence: text('digital_presence'),
+    hasSite: boolean('has_site').default(false).notNull(),
+    siteStatus: siteAnalysisStatus('site_status')
+      .default('NAO_ANALISADO')
+      .notNull(),
+    score: integer('score').default(0).notNull(),
+    scoreReasons: jsonb('score_reasons')
+      .$type<string[]>()
+      .default([])
+      .notNull(),
+    observations: text('observations'),
+    evidence: jsonb('evidence')
+      .$type<ProspectingEvidence[]>()
+      .default([])
+      .notNull(),
+    suggestedMessage: text('suggested_message'),
+    status: prospectingCandidateStatus('status').default('review').notNull(),
+    promotedCompanyId: uuid('promoted_company_id').references(
+      () => companies.id,
+      { onDelete: 'set null' },
+    ),
+    sourceFingerprint: varchar('source_fingerprint', { length: 64 }),
+    researchedAt: timestamp('researched_at', { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex('prospecting_candidates_batch_fingerprint_uq').on(
+      table.batchId,
+      table.sourceFingerprint,
+    ),
+    index('prospecting_candidates_batch_status_idx').on(
+      table.batchId,
+      table.status,
+      table.score,
+    ),
+    index('prospecting_candidates_owner_company_idx').on(
+      table.ownerUserId,
+      table.companyName,
+    ),
+    check(
+      'prospecting_candidates_score_range',
+      sql`${table.score} between 0 and 100`,
     ),
   ],
 );
@@ -1637,6 +1776,10 @@ export const settings = pgTable(
     defaultPostSaleMonths: integer('default_post_sale_months')
       .default(6)
       .notNull(),
+    firstPostSaleDays: integer('first_post_sale_days').default(90).notNull(),
+    recurringPostSaleDays: integer('recurring_post_sale_days')
+      .default(180)
+      .notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -1678,6 +1821,8 @@ export const schema = {
   opportunities,
   pipelineHistory,
   referrals,
+  prospectingBatches,
+  prospectingCandidates,
   leadScoreRules,
   projects,
   technologies,

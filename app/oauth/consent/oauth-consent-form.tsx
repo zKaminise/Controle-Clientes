@@ -14,6 +14,7 @@ const SCOPE_LABELS: Record<string, string> = {
   'crm:pipeline:read': 'Consultar etapas e oportunidades',
   'crm:followups:read': 'Consultar follow-ups',
   'crm:analysis:read': 'Consultar análises e lead score',
+  'crm:prospecting:read': 'Consultar lotes e candidatos de prospecção',
   'crm:metrics:read': 'Consultar atenção e métricas comerciais',
   'crm:leads:write': 'Cadastrar e atualizar leads',
   'crm:pipeline:write': 'Alterar etapas comerciais',
@@ -21,6 +22,7 @@ const SCOPE_LABELS: Record<string, string> = {
   'crm:followups:write': 'Criar follow-ups',
   'crm:referrals:write': 'Registrar indicações',
   'crm:analysis:write': 'Criar ou atualizar análises digitais',
+  'crm:prospecting:write': 'Criar e revisar pesquisas de prospecção',
 };
 
 export function OAuthConsentForm({
@@ -41,7 +43,9 @@ export function OAuthConsentForm({
       scope: requestedScopes.join(' '),
     });
     if (result.error) {
-      setError(result.error.message || 'Não foi possível concluir a autorização.');
+      setError(
+        result.error.message || 'Não foi possível concluir a autorização.',
+      );
       setBusy(null);
     }
   }
@@ -54,23 +58,30 @@ export function OAuthConsentForm({
             <Bot className="size-5" />
           </div>
           <div>
-            <p className="text-xs font-medium text-primary">Integração protegida</p>
+            <p className="text-xs font-medium text-primary">
+              Integração protegida
+            </p>
             <h1 className="text-xl font-semibold">Autorizar acesso ao CRM</h1>
           </div>
         </div>
 
         <p className="mt-5 text-sm leading-6 text-muted-foreground">
-          <span className="font-medium text-foreground">{clientId}</span> solicita acesso ao seu
-          Controle de Clientes. O acesso fica limitado às permissões abaixo e pode ser revogado.
+          <span className="font-medium text-foreground">{clientId}</span>{' '}
+          solicita acesso ao seu Controle de Clientes. O acesso fica limitado às
+          permissões abaixo e pode ser revogado.
         </p>
 
         <div className="mt-5 rounded-xl border bg-muted/25 p-4">
           <div className="mb-3 flex items-center gap-2 text-sm font-medium">
-            <ShieldCheck className="size-4 text-primary" /> Permissões solicitadas
+            <ShieldCheck className="size-4 text-primary" /> Permissões
+            solicitadas
           </div>
           <ul className="space-y-2">
             {requestedScopes.map((scope) => (
-              <li key={scope} className="flex items-start gap-2 text-sm text-muted-foreground">
+              <li
+                key={scope}
+                className="flex items-start gap-2 text-sm text-muted-foreground"
+              >
                 <Check className="mt-0.5 size-4 shrink-0 text-emerald-600" />
                 <span>{SCOPE_LABELS[scope] || scope}</span>
               </li>
@@ -79,26 +90,47 @@ export function OAuthConsentForm({
         </div>
 
         <p className="mt-4 text-xs leading-5 text-muted-foreground">
-          Exclusões, pagamentos, usuários, configurações críticas e operações em massa não são
-          expostos por esta integração.
+          Exclusões, pagamentos, usuários, configurações críticas e operações em
+          massa não são expostos por esta integração.
         </p>
 
         {error && (
-          <p role="alert" className="mt-4 rounded-lg bg-destructive/10 p-3 text-xs text-destructive">
+          <p
+            role="alert"
+            className="mt-4 rounded-lg bg-destructive/10 p-3 text-xs text-destructive"
+          >
             {error}
           </p>
         )}
 
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="outline" size="lg" disabled={Boolean(busy)} onClick={() => decide(false)}>
-            {busy === 'deny' ? <LoaderCircle className="animate-spin" /> : <X />} Recusar
+          <Button
+            variant="outline"
+            size="lg"
+            disabled={Boolean(busy)}
+            onClick={() => decide(false)}
+          >
+            {busy === 'deny' ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              <X />
+            )}{' '}
+            Recusar
           </Button>
-          <Button size="lg" disabled={Boolean(busy)} onClick={() => decide(true)}>
-            {busy === 'accept' ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />} Autorizar
+          <Button
+            size="lg"
+            disabled={Boolean(busy)}
+            onClick={() => decide(true)}
+          >
+            {busy === 'accept' ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              <ShieldCheck />
+            )}{' '}
+            Autorizar
           </Button>
         </div>
       </section>
     </main>
   );
 }
-

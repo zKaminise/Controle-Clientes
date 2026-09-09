@@ -179,3 +179,11 @@ A Gate A publicou oito ferramentas somente leitura e foi validada antes da Gate 
 As migrations `0006_melodic_tag.sql`, `0007_silly_vengeance.sql` e `0008_small_stingray.sql` são incrementais. A última adiciona a tabela de idempotência e versão aos contatos. O teste integrado de escrita cobre cadastro, replay, conflito de chave, atualização, versão obsoleta, etapa de lead, pipeline, contato, resultado, follow-up, indicação e análise/score, removendo os dados de QA ao final.
 
 A integração `codex-readonly` foi preservada sem alteração de segredo e continua restrita aos cinco scopes de leitura. Sua remoção só deve ocorrer depois do aceite OAuth ponta a ponta e da migração de todos os consumidores. Arquitetura, scopes, ferramentas, conexão e rollback estão em [MCP-INTEGRATION.md](./MCP-INTEGRATION.md); os contratos HTTP atualizados estão em [AGENT-API.md](./AGENT-API.md).
+
+## 15. Experiência simplificada e prospecção assistida — fase 4
+
+A navegação principal foi reduzida a Início, Clientes, Prospecção, Agenda, Financeiro e Mais. As áreas antigas permanecem acessíveis em Mais e as APIs/entidades anteriores foram preservadas. Clientes e leads agora são filtrados pelo `lifecycleStatus`; uma oportunidade continua independente da empresa, permitindo novas vendas para clientes existentes.
+
+A migration `0009_many_crystal.sql` adiciona somente `prospecting_batches`, `prospecting_candidates` e dois intervalos configuráveis em `settings`. Candidatos exigem evidência pública, não são leads até promoção explícita e usam deduplicação antes da criação. OAuth/MCP ganhou `crm:prospecting:read` e `crm:prospecting:write`; autorizações antigas não recebem esses scopes e precisam passar por novo consentimento.
+
+O pós-venda deriva o primeiro contato da data de entrega mais 90 dias e, depois de um contato, agenda o próximo em 180 dias. Ambos os valores são configuráveis. Renovar um domínio conclui seus lembretes antigos; responsabilidade de Gabriel eleva a prioridade. Estados legados de prospecção continuam persistidos, mas a interface os agrupa em nove etapas simples.

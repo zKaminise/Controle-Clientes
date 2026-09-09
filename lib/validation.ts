@@ -472,7 +472,17 @@ const interactionsSchema = z
     nextAction: nullableText,
     nextActionAt: nullableTimestamp,
   })
-  .strict();
+  .strict()
+  .refine(
+    (value) =>
+      !['PEDIU_RETORNO', 'REUNIAO_MARCADA', 'PROPOSTA_SOLICITADA'].includes(
+        value.result || '',
+      ) || Boolean(value.nextActionAt),
+    {
+      path: ['nextActionAt'],
+      message: 'Escolha a data do próximo contato.',
+    },
+  );
 
 const messageTemplatesSchema = z
   .object({
@@ -517,6 +527,83 @@ const leadScoreRulesSchema = z
   })
   .strict();
 
+const prospectingBatchesSchema = z
+  .object({
+    name: shortText,
+    industry: nullableShortText,
+    city: nullableShortText,
+    state: z.preprocess(
+      (value) => (value === '' ? null : value),
+      z.string().trim().length(2).toUpperCase().nullable().optional(),
+    ),
+    desiredQuantity: z.coerce.number().int().min(1).max(100).default(20),
+    criteria: nullableText,
+    status: z
+      .enum(['draft', 'researching', 'review', 'completed', 'cancelled'])
+      .default('draft'),
+  })
+  .strict();
+
+const prospectingCandidatesSchema = z
+  .object({
+    batchId: uuid,
+    companyName: shortText,
+    industry: nullableShortText,
+    city: nullableShortText,
+    state: z.preprocess(
+      (value) => (value === '' ? null : value),
+      z.string().trim().length(2).toUpperCase().nullable().optional(),
+    ),
+    publicPhone: phone,
+    publicEmail: nullableEmail,
+    website: nullableUrl,
+    instagram: nullableUrl,
+    otherNetworks: z
+      .array(
+        z
+          .object({ label: shortText, url: z.string().trim().url().max(2_000) })
+          .strict(),
+      )
+      .max(20)
+      .default([]),
+    digitalPresence: nullableText,
+    hasSite: z.coerce.boolean().default(false),
+    siteStatus: z
+      .enum([
+        'SEM_SITE',
+        'SITE_RUIM',
+        'SITE_DEFASADO',
+        'SITE_MEDIANO',
+        'SITE_BOM',
+        'NAO_ANALISADO',
+      ])
+      .default('NAO_ANALISADO'),
+    score: z.coerce.number().int().min(0).max(100).default(0),
+    scoreReasons: z
+      .array(z.string().trim().min(1).max(500))
+      .max(30)
+      .default([]),
+    observations: nullableText,
+    evidence: z
+      .array(
+        z
+          .object({
+            url: z.string().trim().url().max(2_000),
+            label: nullableShortText,
+            note: nullableShortText,
+          })
+          .strict(),
+      )
+      .min(1, 'Informe ao menos uma fonte pública verificável.')
+      .max(30),
+    suggestedMessage: nullableText,
+    status: z
+      .enum(['review', 'approved', 'ignored', 'later', 'promoted'])
+      .default('review'),
+    researchedAt: nullableTimestamp,
+  })
+  .strict();
+
 export const entitySchemas = {
   companies: companiesSchema,
   digitalAnalyses: digitalAnalysesSchema,
@@ -535,6 +622,8 @@ export const entitySchemas = {
   tasks: tasksSchema,
   interactions: interactionsSchema,
   referrals: referralsSchema,
+  prospectingBatches: prospectingBatchesSchema,
+  prospectingCandidates: prospectingCandidatesSchema,
   leadScoreRules: leadScoreRulesSchema,
   messageTemplates: messageTemplatesSchema,
   tags: tagsSchema,
@@ -624,6 +713,80 @@ export const mutationSchema = z.discriminatedUnion('action', [
     tagId: uuid,
   }),
   z.object({
+    action: z.literal('promoteProspectingCandidate'),
+    id: uuid,
+  }),
+  z.object({
+    action: z.literal('createLegacyClient'),
+    data: z
+      .object({
+        companyName: shortText,
+        primaryContactName: nullableShortText,
+        industry: nullableShortText,
+        city: nullableShortText,
+        state: z.preprocess(
+          (value) => (value === '' ? null : value),
+          z.string().trim().length(2).toUpperCase().nullable().optional(),
+        ),
+        website: nullableUrl,
+        email: nullableEmail,
+        phone,
+        whatsapp: phone,
+        projectName: shortText,
+        projectType: z
+          .enum([
+            'landing_page',
+            'institutional',
+            'ecommerce',
+            'web_system',
+            'maintenance',
+            'other',
+          ])
+          .default('other'),
+        productionUrl: nullableUrl,
+        projectStartDate: nullableDate,
+        deliveryDate: nullableDate,
+        soldValue: nullableMoney,
+        domain: nullableShortText,
+        domainRegistrar: nullableShortText,
+        domainExpirationDate: nullableDate,
+        domainResponsibility: z
+          .enum(['me', 'client', 'third_party'])
+          .default('client'),
+        hostingProvider: nullableShortText,
+        hostingPlan: nullableShortText,
+        hostingRenewalDate: nullableDate,
+        hasMaintenance: z.boolean().default(false),
+        maintenanceDescription: nullableShortText,
+        maintenanceAmount: nullableMoney,
+        maintenanceStartDate: nullableDate,
+        lastContactAt: nullableTimestamp,
+        postSaleDate: nullableTimestamp,
+        notes: nullableText,
+      })
+      .strict()
+      .superRefine((value, context) => {
+        if (value.domain && !value.domainExpirationDate)
+          context.addIssue({
+            code: 'custom',
+            path: ['domainExpirationDate'],
+            message: 'Informe o vencimento do domínio.',
+          });
+        if (value.hostingProvider && !value.hostingRenewalDate)
+          context.addIssue({
+            code: 'custom',
+            path: ['hostingRenewalDate'],
+            message: 'Informe a renovação da hospedagem.',
+          });
+        if (value.hasMaintenance && !value.maintenanceAmount)
+          context.addIssue({
+            code: 'custom',
+            path: ['maintenanceAmount'],
+            message: 'Informe o valor da manutenção.',
+          });
+      }),
+  }),
+  z.object({
     action: z.literal('updateSettings'),
     data: z
       .object({
@@ -640,6 +803,8 @@ export const mutationSchema = z.discriminatedUnion('action', [
           .min(1)
           .max(12),
         defaultPostSaleMonths: z.number().int().min(1).max(120),
+        firstPostSaleDays: z.number().int().min(1).max(730).default(90),
+        recurringPostSaleDays: z.number().int().min(1).max(730).default(180),
       })
       .strict(),
   }),

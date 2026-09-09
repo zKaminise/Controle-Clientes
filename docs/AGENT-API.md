@@ -98,12 +98,14 @@ Boas práticas: armazene o segredo em cofre de credenciais, conceda somente os s
 | `crm:followups:read` | follow-ups e Minha Atenção                      |
 | `crm:analysis:read`  | score reduzido do lead                          |
 | `crm:metrics:read`   | métricas comerciais                             |
+| `crm:prospecting:read` | lotes e candidatos de pesquisa pública |
 | `crm:leads:write` | cadastrar/atualizar lead e alterar etapa |
 | `crm:pipeline:write` | mover oportunidade |
 | `crm:interactions:write` | criar contato e registrar resultado |
 | `crm:followups:write` | criar follow-up |
 | `crm:referrals:write` | registrar indicação |
 | `crm:analysis:write` | criar/atualizar análise digital |
+| `crm:prospecting:write` | criar/revisar lotes e promover candidatos |
 
 Uma credencial sem o scope exigido recebe `403 AGENT_SCOPE_REQUIRED`.
 
@@ -181,6 +183,10 @@ Toda rota abaixo exige `Authorization: Bearer`, `Content-Type: application/json`
 | `POST /follow-ups` | `crm:followups:write` | empresa, título, prioridade, vencimento e lembrete opcionais |
 | `POST /referrals` | `crm:referrals:write` | empresa indicadora, indicada, status e notas |
 | `PUT /leads/:id/digital-analysis` | `crm:analysis:write` | versão opcional e campos da análise |
+| `POST /prospecting-batches` | `crm:prospecting:write` | segmento, local, quantidade e critérios |
+| `POST /prospecting-batches/:id/candidates` | `crm:prospecting:write` | dados comerciais públicos, score e evidências |
+| `PATCH /prospecting-candidates/:id` | `crm:prospecting:write` | `expectedUpdatedAt` e campos revisados |
+| `POST /prospecting-candidates/:id/promote` | `crm:prospecting:write` | sem payload; deduplica e cria o lead |
 
 Datas são ISO 8601 com offset. IDs são UUID. Objetos rejeitam campos desconhecidos. `nextAction` e `nextActionAt` devem ser enviados juntos. Atualizações sobre versão antiga retornam `409 AGENT_VERSION_CONFLICT`. Respostas bem-sucedidas incluem `meta.idempotentReplay`.
 

@@ -6,6 +6,7 @@ export const MCP_READ_SCOPES = [
   'crm:followups:read',
   'crm:analysis:read',
   'crm:metrics:read',
+  'crm:prospecting:read',
 ] as const;
 
 export const MCP_WRITE_SCOPES = [
@@ -15,6 +16,7 @@ export const MCP_WRITE_SCOPES = [
   'crm:followups:write',
   'crm:referrals:write',
   'crm:analysis:write',
+  'crm:prospecting:write',
 ] as const;
 
 export const MCP_OIDC_SCOPES = [
@@ -45,4 +47,3 @@ export function mcpAllowedAdminEmail() {
     'gabriel.misao08@gmail.com'
   ).toLowerCase();
 }
-

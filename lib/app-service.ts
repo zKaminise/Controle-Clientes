@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import {
@@ -23,6 +23,8 @@ import {
   pipelineStages,
   projects,
   proposals,
+  prospectingBatches,
+  prospectingCandidates,
   referrals,
   services,
   settings,
@@ -36,12 +38,14 @@ import {
   paymentAmountForBalance,
   pipelineTransition,
   proposalStatusTimestamps,
+  isoDateInTimeZone,
 } from '@/lib/business';
 import {
   calculateLeadScore,
   DEFAULT_LEAD_SCORE_RULES,
   leadScoreLevel,
 } from '@/lib/crm';
+import { conversionFields, nextPostSaleAt } from '@/lib/customer-experience';
 import {
   type EntityName,
   mutationSchema,
@@ -66,6 +70,8 @@ const entityTables: Record<EntityName, typeof companies> = {
   tasks: tasks as unknown as typeof companies,
   interactions: interactions as unknown as typeof companies,
   referrals: referrals as unknown as typeof companies,
+  prospectingBatches: prospectingBatches as unknown as typeof companies,
+  prospectingCandidates: prospectingCandidates as unknown as typeof companies,
   leadScoreRules: leadScoreRules as unknown as typeof companies,
   messageTemplates: messageTemplates as unknown as typeof companies,
   tags: tags as unknown as typeof companies,
@@ -154,6 +160,11 @@ async function validateOwnedRelations(
     ['chargeId', charges as unknown as typeof companies, 'Cobrança'],
     ['domainId', domains as unknown as typeof companies, 'Domínio'],
     ['meetingId', meetings as unknown as typeof companies, 'Reunião'],
+    [
+      'batchId',
+      prospectingBatches as unknown as typeof companies,
+      'Lote de prospecção',
+    ],
   ];
   for (const [key, table, label] of relations) {
     const relationId = parsed[key];
@@ -286,6 +297,8 @@ export async function getAppData(ownerUserId: string) {
     opportunityRows,
     pipelineHistoryRows,
     referralRows,
+    prospectingBatchRows,
+    prospectingCandidateRows,
     leadScoreRuleRows,
     projectRows,
     domainRows,
@@ -370,6 +383,19 @@ export async function getAppData(ownerUserId: string) {
       .from(referrals)
       .where(eq(referrals.ownerUserId, ownerUserId))
       .orderBy(desc(referrals.createdAt)),
+    db
+      .select()
+      .from(prospectingBatches)
+      .where(eq(prospectingBatches.ownerUserId, ownerUserId))
+      .orderBy(desc(prospectingBatches.updatedAt)),
+    db
+      .select()
+      .from(prospectingCandidates)
+      .where(eq(prospectingCandidates.ownerUserId, ownerUserId))
+      .orderBy(
+        desc(prospectingCandidates.score),
+        desc(prospectingCandidates.updatedAt),
+      ),
     db
       .select()
       .from(leadScoreRules)
@@ -517,6 +543,8 @@ export async function getAppData(ownerUserId: string) {
     opportunities: opportunityRows,
     pipelineHistory: pipelineHistoryRows,
     referrals: referralRows,
+    prospectingBatches: prospectingBatchRows,
+    prospectingCandidates: prospectingCandidateRows,
     leadScoreRules: leadScoreRuleRows,
     projects: projectRows,
     domains: domainRows,
@@ -592,6 +620,32 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
         ? { convertedAt: new Date() }
         : {}),
       ownerUserId,
+      ...(input.entity === 'prospectingCandidates'
+        ? {
+            sourceFingerprint: createHash('sha256')
+              .update(
+                JSON.stringify({
+                  name: String(
+                    (parsed as { companyName?: string }).companyName || '',
+                  )
+                    .trim()
+                    .toLocaleLowerCase('pt-BR'),
+                  city: String((parsed as { city?: string }).city || '')
+                    .trim()
+                    .toLocaleLowerCase('pt-BR'),
+                  evidence: (
+                    parsed as { evidence?: Array<{ url: string }> }
+                  ).evidence
+                    ?.map((item) => item.url)
+                    .sort(),
+                }),
+              )
+              .digest('hex'),
+            researchedAt:
+              (parsed as { researchedAt?: Date | null }).researchedAt ||
+              new Date(),
+          }
+        : {}),
       ...(input.entity === 'interactions'
         ? {
             createdBy: ownerUserId,
@@ -617,26 +671,65 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
         nextActionAt?: Date | null;
       };
       const company = await ownedCompany(ownerUserId, interaction.companyId);
+      const [ownerSettings] = await db
+        .select({ recurringPostSaleDays: settings.recurringPostSaleDays })
+        .from(settings)
+        .where(eq(settings.ownerUserId, ownerUserId))
+        .limit(1);
       const rowId = randomUUID();
       const occurredAt = interaction.occurredAt || new Date();
+      const result = String(
+        (parsed as { result?: string | null }).result || '',
+      );
+      const resultStatus: Record<string, string> = {
+        NAO_RESPONDEU: 'SEM_RESPOSTA',
+        RESPONDEU: 'RESPONDEU',
+        INTERESSADO: 'INTERESSADO',
+        SEM_INTERESSE: 'SEM_INTERESSE',
+        PEDIU_RETORNO: 'FOLLOWUP_FUTURO',
+        REUNIAO_MARCADA: 'REUNIAO_AGENDADA',
+        PROPOSTA_SOLICITADA: 'INTERESSADO',
+      };
+      const suggestedAction: Record<string, string> = {
+        NAO_RESPONDEU: 'Tentar contato novamente',
+        PEDIU_RETORNO: 'Retomar contato',
+        REUNIAO_MARCADA: 'Realizar reunião',
+        PROPOSTA_SOLICITADA: 'Preparar proposta',
+      };
+      const effectiveNextAction =
+        interaction.nextAction || suggestedAction[result] || null;
+      const effectiveNextActionAt =
+        interaction.nextActionAt ||
+        (result === 'NAO_RESPONDEU' ? nextPostSaleAt(occurredAt, 3) : null);
       const occurredDate = occurredAt.toISOString().slice(0, 10);
-      const nextContactAt = company.contactFrequencyMonths
-        ? dateAtNoon(
-            nextPostSaleDate(occurredDate, company.contactFrequencyMonths),
-          )
-        : company.nextContactAt;
+      const nextContactAt =
+        company.lifecycleStatus === 'client'
+          ? nextPostSaleAt(
+              occurredAt,
+              ownerSettings?.recurringPostSaleDays || 180,
+            )
+          : company.contactFrequencyMonths
+            ? dateAtNoon(
+                nextPostSaleDate(occurredDate, company.contactFrequencyMonths),
+              )
+            : company.nextContactAt;
       const insertInteraction = db.insert(interactions).values({
         ...(values as unknown as typeof interactions.$inferInsert),
         id: rowId,
         occurredAt,
+        nextAction: effectiveNextAction,
+        nextActionAt: effectiveNextActionAt,
       });
       const updateCompany = db
         .update(companies)
         .set({
           lastContactAt: occurredAt,
           nextContactAt,
-          nextAction: interaction.nextAction || company.nextAction,
-          nextActionAt: interaction.nextActionAt || company.nextActionAt,
+          nextAction: effectiveNextAction || company.nextAction,
+          nextActionAt: effectiveNextActionAt || company.nextActionAt,
+          ...(company.lifecycleStatus !== 'client' && resultStatus[result]
+            ? { prospectingStatus: resultStatus[result] as never }
+            : {}),
           updatedAt: new Date(),
         })
         .where(
@@ -653,16 +746,16 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
         action: 'created',
         description: `${input.entity} criado.`,
       });
-      if (interaction.nextAction && interaction.nextActionAt) {
+      if (effectiveNextAction && effectiveNextActionAt) {
         await db.batch([
           insertInteraction,
           updateCompany,
           db.insert(tasks).values({
             ownerUserId,
             companyId: interaction.companyId,
-            title: interaction.nextAction,
+            title: effectiveNextAction,
             type: 'follow_up',
-            dueAt: interaction.nextActionAt,
+            dueAt: effectiveNextActionAt,
             source: 'manual',
           }),
           activity,
@@ -708,6 +801,18 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
           and(
             eq(companies.id, (parsed as { companyId: string }).companyId),
             eq(companies.ownerUserId, ownerUserId),
+          ),
+        );
+    }
+    if (input.entity === 'meetings') {
+      await db
+        .update(companies)
+        .set({ prospectingStatus: 'REUNIAO_AGENDADA', updatedAt: new Date() })
+        .where(
+          and(
+            eq(companies.id, (parsed as { companyId: string }).companyId),
+            eq(companies.ownerUserId, ownerUserId),
+            inArray(companies.lifecycleStatus, ['lead', 'prospect']),
           ),
         );
     }
@@ -786,6 +891,13 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
       : null;
     const set = {
       ...parsed,
+      ...(input.entity === 'companies'
+        ? conversionFields(
+            String(
+              (parsed as { prospectingStatus?: string }).prospectingStatus,
+            ),
+          )
+        : {}),
       ...proposalDates,
       ...(analysisScore
         ? {
@@ -840,6 +952,27 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
       await recalculateOwnerScores(ownerUserId);
     if (input.entity === 'companies')
       await recalculateOwnerScores(ownerUserId, input.id);
+    if (
+      input.entity === 'domains' &&
+      Object.prototype.hasOwnProperty.call(parsed, 'expirationDate') &&
+      (existing as unknown as { expirationDate?: string }).expirationDate !==
+        (parsed as { expirationDate?: string }).expirationDate
+    ) {
+      await db
+        .update(tasks)
+        .set({
+          status: 'completed',
+          completedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(tasks.ownerUserId, ownerUserId),
+            eq(tasks.domainId, input.id),
+            inArray(tasks.status, ['open', 'snoozed']),
+          ),
+        );
+    }
     const existingCompanyId = (
       existing as unknown as { companyId?: string | null }
     ).companyId;
@@ -892,6 +1025,245 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
       description: 'Configurações operacionais atualizadas.',
     });
     return row;
+  }
+
+  if (input.action === 'promoteProspectingCandidate') {
+    const [candidate] = await db
+      .select()
+      .from(prospectingCandidates)
+      .where(
+        and(
+          eq(prospectingCandidates.id, input.id),
+          eq(prospectingCandidates.ownerUserId, ownerUserId),
+        ),
+      )
+      .limit(1);
+    if (!candidate) throw new Error('Candidato não encontrado.');
+    if (candidate.promotedCompanyId)
+      return { id: candidate.promotedCompanyId, candidateId: candidate.id };
+
+    const existingCompanies = await db
+      .select({ id: companies.id, name: companies.name, city: companies.city })
+      .from(companies)
+      .where(eq(companies.ownerUserId, ownerUserId));
+    const normalizedName = candidate.companyName
+      .trim()
+      .toLocaleLowerCase('pt-BR');
+    const normalizedCity = (candidate.city || '')
+      .trim()
+      .toLocaleLowerCase('pt-BR');
+    const duplicate = existingCompanies.find(
+      (company) =>
+        company.name.trim().toLocaleLowerCase('pt-BR') === normalizedName &&
+        (company.city || '').trim().toLocaleLowerCase('pt-BR') ===
+          normalizedCity,
+    );
+    if (duplicate)
+      throw new Error(
+        'Já existe uma empresa com este nome e cidade. Revise o cadastro existente.',
+      );
+
+    const companyId = randomUUID();
+    const analysisId = randomUUID();
+    await db.batch([
+      db.insert(companies).values({
+        id: companyId,
+        ownerUserId,
+        name: candidate.companyName,
+        website: candidate.website,
+        instagram: candidate.instagram,
+        email: candidate.publicEmail,
+        phone: candidate.publicPhone,
+        whatsapp: candidate.publicPhone,
+        city: candidate.city,
+        state: candidate.state,
+        industry: candidate.industry,
+        lifecycleStatus: 'lead',
+        relationshipStatus: 'inactive',
+        prospectingStatus: 'NOVO_LEAD',
+        leadSource: 'Lote de prospecção',
+        sourceUrl: candidate.evidence[0]?.url || null,
+        notesSummary: candidate.observations,
+      }),
+      db.insert(digitalAnalyses).values({
+        id: analysisId,
+        ownerUserId,
+        companyId,
+        hasSite: candidate.hasSite,
+        websiteUrl: candidate.website,
+        siteStatus: candidate.siteStatus,
+        leadScore: candidate.score,
+        scoreOverride: candidate.score,
+        scoreLevel: leadScoreLevel(candidate.score),
+        priority: leadScoreLevel(candidate.score),
+        scoreBreakdown: candidate.scoreReasons.map((reason) => ({
+          ruleKey: 'prospecting_research',
+          label: reason,
+          points: 0,
+        })),
+        issues: candidate.digitalPresence,
+        opportunities: candidate.observations,
+        analyzedAt: candidate.researchedAt || new Date(),
+      }),
+      db
+        .update(prospectingCandidates)
+        .set({
+          status: 'promoted',
+          promotedCompanyId: companyId,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(prospectingCandidates.id, candidate.id),
+            eq(prospectingCandidates.ownerUserId, ownerUserId),
+          ),
+        ),
+      activityStatement({
+        ownerUserId,
+        companyId,
+        entityType: 'prospecting_candidate',
+        entityId: candidate.id,
+        action: 'promoted',
+        description: `Candidato promovido para lead: ${candidate.companyName}.`,
+        metadata: { batchId: candidate.batchId, analysisId },
+      }),
+    ]);
+    return { id: companyId, candidateId: candidate.id };
+  }
+
+  if (input.action === 'createLegacyClient') {
+    const value = input.data;
+    const normalizedName = value.companyName.trim().toLocaleLowerCase('pt-BR');
+    const allCompanies = await db
+      .select({ id: companies.id, name: companies.name })
+      .from(companies)
+      .where(eq(companies.ownerUserId, ownerUserId));
+    if (
+      allCompanies.some(
+        (company) =>
+          company.name.trim().toLocaleLowerCase('pt-BR') === normalizedName,
+      )
+    )
+      throw new Error('Já existe uma empresa com este nome.');
+
+    const companyId = randomUUID();
+    const projectId = randomUUID();
+    const today = isoDateInTimeZone();
+    const [ownerSettings] = await db
+      .select({ firstPostSaleDays: settings.firstPostSaleDays })
+      .from(settings)
+      .where(eq(settings.ownerUserId, ownerUserId))
+      .limit(1);
+    const deliveryDate = value.deliveryDate || null;
+    const explicitPostSaleDate = value.postSaleDate
+      ? value.postSaleDate instanceof Date
+        ? new Date(value.postSaleDate.getTime())
+        : new Date(value.postSaleDate)
+      : null;
+    const lastContactAt = value.lastContactAt
+      ? value.lastContactAt instanceof Date
+        ? new Date(value.lastContactAt.getTime())
+        : new Date(value.lastContactAt)
+      : null;
+    const postSaleDate: Date | null =
+      explicitPostSaleDate ||
+      (deliveryDate
+        ? dateAtNoon(
+            new Date(`${deliveryDate}T12:00:00Z`).toISOString().slice(0, 10),
+          )
+        : null);
+    if (postSaleDate && !explicitPostSaleDate)
+      postSaleDate.setUTCDate(
+        postSaleDate.getUTCDate() + (ownerSettings?.firstPostSaleDays || 90),
+      );
+
+    const statements = [
+      db.insert(companies).values({
+        id: companyId,
+        ownerUserId,
+        name: value.companyName,
+        primaryContactName: value.primaryContactName,
+        industry: value.industry,
+        city: value.city,
+        state: value.state,
+        website: value.website,
+        email: value.email,
+        phone: value.phone,
+        whatsapp: value.whatsapp,
+        lifecycleStatus: 'client',
+        relationshipStatus: value.hasMaintenance
+          ? 'active_recurring'
+          : 'active_non_recurring',
+        prospectingStatus: 'FECHADO',
+        lastContactAt,
+        nextContactAt: postSaleDate,
+        notesSummary: value.notes,
+      }),
+      db.insert(projects).values({
+        id: projectId,
+        ownerUserId,
+        companyId,
+        name: value.projectName,
+        type: value.projectType,
+        status: 'delivered',
+        productionUrl: value.productionUrl,
+        startDate: value.projectStartDate,
+        deliveryDate,
+        soldValue: value.soldValue || '0.00',
+        notes: value.notes,
+      }),
+      activityStatement({
+        ownerUserId,
+        companyId,
+        entityType: 'company',
+        entityId: companyId,
+        action: 'legacy_client_created',
+        description: `Cliente antigo cadastrado com projeto entregue: ${value.companyName}.`,
+      }),
+    ];
+    if (value.domain && value.domainExpirationDate)
+      statements.push(
+        db.insert(domains).values({
+          ownerUserId,
+          companyId,
+          projectId,
+          domain: value.domain,
+          registrar: value.domainRegistrar,
+          expirationDate: value.domainExpirationDate,
+          responsibility: value.domainResponsibility,
+          registeredUnderMyAccount: value.domainResponsibility === 'me',
+        }) as never,
+      );
+    if (value.hostingProvider)
+      statements.push(
+        db.insert(hostingServices).values({
+          ownerUserId,
+          companyId,
+          projectId,
+          provider: value.hostingProvider,
+          plan: value.hostingPlan,
+          renewalDate: value.hostingRenewalDate,
+        }) as never,
+      );
+    if (value.hasMaintenance && value.maintenanceAmount) {
+      const startDate = value.maintenanceStartDate || today;
+      statements.push(
+        db.insert(subscriptions).values({
+          ownerUserId,
+          companyId,
+          projectId,
+          description: value.maintenanceDescription || 'Manutenção mensal',
+          amount: value.maintenanceAmount,
+          frequency: 'monthly',
+          billingDay: Number(startDate.slice(8, 10)),
+          startDate,
+          nextChargeDate: startDate,
+          status: 'active',
+        }) as never,
+      );
+    }
+    await db.batch(statements as never);
+    return { id: companyId, projectId };
   }
 
   if (input.action === 'archive' || input.action === 'restore') {

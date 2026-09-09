@@ -37,9 +37,16 @@ function principal(scopes: string[]): McpPrincipal {
 async function listTools(scopes: string[]) {
   const server = createCrmMcpServer(principal(scopes));
   const client = new Client({ name: 'crm-test-client', version: '1.0.0' });
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  closers.push(() => client.close(), () => server.close());
-  await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  closers.push(
+    () => client.close(),
+    () => server.close(),
+  );
+  await Promise.all([
+    client.connect(clientTransport),
+    server.connect(serverTransport),
+  ]);
   return client.listTools();
 }
 
@@ -63,13 +70,21 @@ describe('CRM MCP Gate A', () => {
       'crm_get_opportunity_stage',
       'crm_search_leads',
     ]);
-    expect(response.tools.every((tool) => tool.annotations?.readOnlyHint === true)).toBe(true);
-    expect(response.tools.every((tool) => tool.annotations?.destructiveHint === false)).toBe(true);
+    expect(
+      response.tools.every((tool) => tool.annotations?.readOnlyHint === true),
+    ).toBe(true);
+    expect(
+      response.tools.every(
+        (tool) => tool.annotations?.destructiveHint === false,
+      ),
+    ).toBe(true);
   });
 
   it('oculta ferramentas cujo scope não foi concedido', async () => {
     const response = await listTools(['crm:analysis:read']);
-    expect(response.tools.map((tool) => tool.name)).toEqual(['crm_get_lead_score']);
+    expect(response.tools.map((tool) => tool.name)).toEqual([
+      'crm_get_lead_score',
+    ]);
   });
 
   it('não expõe operações sensíveis nem ferramentas de escrita no Gate A', async () => {
@@ -81,7 +96,9 @@ describe('CRM MCP Gate A', () => {
       'crm:metrics:read',
     ]);
     const names = response.tools.map((tool) => tool.name).join(' ');
-    expect(names).not.toMatch(/delete|payment|user|config|bulk|create|update|set|move|upsert/);
+    expect(names).not.toMatch(
+      /delete|payment|user|config|bulk|create|update|set|move|upsert/,
+    );
   });
 
   it('expõe somente as nove escritas normais quando os scopes do Gate B são concedidos', async () => {
@@ -104,11 +121,48 @@ describe('CRM MCP Gate A', () => {
       'crm_update_lead',
       'crm_upsert_digital_analysis',
     ]);
-    expect(response.tools.every((tool) => tool.annotations?.readOnlyHint === false)).toBe(true);
-    expect(response.tools.every((tool) => tool.annotations?.destructiveHint === false)).toBe(true);
-    expect(response.tools.every((tool) => tool.annotations?.idempotentHint === true)).toBe(true);
+    expect(
+      response.tools.every((tool) => tool.annotations?.readOnlyHint === false),
+    ).toBe(true);
+    expect(
+      response.tools.every(
+        (tool) => tool.annotations?.destructiveHint === false,
+      ),
+    ).toBe(true);
+    expect(
+      response.tools.every((tool) => tool.annotations?.idempotentHint === true),
+    ).toBe(true);
     expect(response.tools.map((tool) => tool.name).join(' ')).not.toMatch(
       /delete|payment|user|config|bulk/,
     );
+  });
+
+  it('isola as sete ferramentas de pesquisa assistida em scopes próprios', async () => {
+    const response = await listTools([
+      'crm:prospecting:read',
+      'crm:prospecting:write',
+    ]);
+    expect(response.tools.map((tool) => tool.name).sort()).toEqual([
+      'crm_add_prospecting_candidate',
+      'crm_create_prospecting_batch',
+      'crm_get_prospecting_batch',
+      'crm_list_prospecting_batches',
+      'crm_list_prospecting_candidates',
+      'crm_promote_prospecting_candidate',
+      'crm_update_prospecting_candidate',
+    ]);
+    const readTools = response.tools.filter(
+      (tool) => tool.annotations?.readOnlyHint,
+    );
+    const writeTools = response.tools.filter(
+      (tool) => !tool.annotations?.readOnlyHint,
+    );
+    expect(readTools).toHaveLength(3);
+    expect(writeTools).toHaveLength(4);
+    expect(
+      response.tools.every(
+        (tool) => tool.annotations?.destructiveHint === false,
+      ),
+    ).toBe(true);
   });
 });

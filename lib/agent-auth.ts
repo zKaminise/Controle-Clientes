@@ -16,6 +16,7 @@ export const AGENT_READ_SCOPES = [
   'crm:followups:read',
   'crm:analysis:read',
   'crm:metrics:read',
+  'crm:prospecting:read',
 ] as const;
 
 export const AGENT_WRITE_SCOPES = [
@@ -25,6 +26,7 @@ export const AGENT_WRITE_SCOPES = [
   'crm:followups:write',
   'crm:referrals:write',
   'crm:analysis:write',
+  'crm:prospecting:write',
 ] as const;
 
 export const AGENT_SCOPES = [

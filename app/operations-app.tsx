@@ -36,6 +36,9 @@ import {
   Upload,
   Users,
   X,
+  CircleEllipsis,
+  HelpCircle,
+  ChevronDown,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -67,6 +70,8 @@ import { whatsappUrl } from '@/lib/business';
 import { renderTemplate } from '@/lib/email-templates';
 import { ImportLeadsDialog } from '@/components/crm/import-leads-dialog';
 import { ProspectingPage } from '@/components/crm/prospecting-page';
+import { LegacyClientWizard } from '@/components/crm/legacy-client-wizard';
+import { clientCompleteness } from '@/lib/customer-experience';
 
 type Primitive = string | number | boolean | null | undefined;
 type Row = Record<string, Primitive> & { id: string };
@@ -266,6 +271,32 @@ type SettingsData = {
   theme: 'light' | 'dark' | 'system';
   domainAlertDays: number[];
   defaultPostSaleMonths: number;
+  firstPostSaleDays: number;
+  recurringPostSaleDays: number;
+};
+type ProspectingBatch = {
+  id: string;
+  name: string;
+  industry?: string | null;
+  city?: string | null;
+  state?: string | null;
+  desiredQuantity: number;
+  criteria?: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+type ProspectingCandidate = {
+  id: string;
+  batchId: string;
+  companyName: string;
+  city?: string | null;
+  state?: string | null;
+  score: number;
+  status: string;
+  evidence: Array<{ url: string; label?: string | null }>;
+  suggestedMessage?: string | null;
+  promotedCompanyId?: string | null;
 };
 type AppData = {
   user: User;
@@ -277,6 +308,8 @@ type AppData = {
   opportunities: Opportunity[];
   pipelineHistory: PipelineHistoryRow[];
   referrals: Referral[];
+  prospectingBatches: ProspectingBatch[];
+  prospectingCandidates: ProspectingCandidate[];
   leadScoreRules: LeadScoreRuleRow[];
   projects: Project[];
   domains: Domain[];
@@ -312,7 +345,8 @@ type PageKey =
   | 'commercial'
   | 'messages'
   | 'reports'
-  | 'settings';
+  | 'settings'
+  | 'help';
 type Entity =
   | 'companies'
   | 'digitalAnalyses'
@@ -333,7 +367,9 @@ type Entity =
   | 'referrals'
   | 'leadScoreRules'
   | 'messageTemplates'
-  | 'tags';
+  | 'tags'
+  | 'prospectingBatches'
+  | 'prospectingCandidates';
 type FormValues = Record<string, Primitive>;
 type FormState = {
   entity: Entity;
@@ -360,24 +396,28 @@ type Field = {
   required?: boolean;
 };
 
-const nav: Array<[PageKey, string, typeof LayoutDashboard]> = [
-  ['dashboard', 'Dashboard', LayoutDashboard],
-  ['attention', 'Minha atenção', AlertTriangle],
-  ['prospecting', 'Prospecção', Search],
+const primaryNav: Array<[PageKey, string, typeof LayoutDashboard]> = [
+  ['dashboard', 'Início', LayoutDashboard],
   ['companies', 'Clientes', Users],
+  ['prospecting', 'Prospecção', Search],
+  ['agenda', 'Agenda', CalendarDays],
+  ['finance', 'Financeiro', CircleDollarSign],
+];
+
+const moreNav: Array<[PageKey, string, typeof LayoutDashboard]> = [
+  ['attention', 'Minha atenção', AlertTriangle],
   ['pipeline', 'Pipeline', Target],
   ['projects', 'Projetos', BriefcaseBusiness],
-  ['finance', 'Financeiro', CircleDollarSign],
   ['domains', 'Domínios', Globe2],
-  ['agenda', 'Agenda', CalendarDays],
   ['commercial', 'Propostas & reuniões', FileText],
   ['messages', 'Comunicação', MessageCircle],
   ['reports', 'Relatórios', FileSpreadsheet],
   ['settings', 'Configurações', Settings],
+  ['help', 'Como usar', HelpCircle],
 ];
 
 const titles: Record<PageKey, [string, string]> = {
-  dashboard: ['Bom dia, Gabriel.', 'Sua operação em números e próximas ações.'],
+  dashboard: ['Bom dia, Gabriel.', 'O que precisa de ação hoje, sem ruído.'],
   attention: [
     'Precisa da sua atenção',
     'Pendências ordenadas por urgência e data.',
@@ -387,8 +427,8 @@ const titles: Record<PageKey, [string, string]> = {
     'Encontre oportunidades, priorize contatos e avance cada lead.',
   ],
   companies: [
-    'Clientes e prospects',
-    'Relacionamentos, contatos, tags e visão 360º.',
+    'Clientes',
+    'Clientes atendidos, projetos entregues e pós-venda.',
   ],
   projects: ['Projetos', 'Entregas, tecnologias e infraestrutura vinculada.'],
   pipeline: [
@@ -408,6 +448,7 @@ const titles: Record<PageKey, [string, string]> = {
     'Configurações',
     'Preferências, pipeline, segurança e portabilidade.',
   ],
+  help: ['Como usar', 'Um guia curto para operar o CRM no dia a dia.'],
 };
 
 export function OperationsApp({ initialUser }: { initialUser: User }) {
@@ -416,6 +457,8 @@ export function OperationsApp({ initialUser }: { initialUser: User }) {
   const [data, setData] = useState<AppData | null>(null);
   const [page, setPage] = useState<PageKey>('dashboard');
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [legacyClientOpen, setLegacyClientOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [form, setForm] = useState<FormState | null>(null);
@@ -588,7 +631,7 @@ export function OperationsApp({ initialUser }: { initialUser: User }) {
           className="space-y-0.5 overflow-y-auto"
           aria-label="Navegação principal"
         >
-          {nav.map(([key, label, Icon]) => (
+          {primaryNav.map(([key, label, Icon]) => (
             <button
               key={key}
               onClick={() => {
@@ -620,6 +663,52 @@ export function OperationsApp({ initialUser }: { initialUser: User }) {
                 )}
             </button>
           ))}
+          <button
+            onClick={() => setMoreOpen((value) => !value)}
+            className={`flex h-9 w-full items-center gap-3 rounded-lg px-3 text-sm transition-colors ${moreNav.some(([key]) => key === page) ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground' : 'text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground'}`}
+          >
+            <CircleEllipsis className="size-4" />
+            <span>Mais</span>
+            <ChevronDown
+              className={`ml-auto size-3.5 transition-transform ${moreOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
+          {moreOpen && (
+            <div className="ml-3 space-y-0.5 border-l pl-2">
+              {moreNav.map(([key, text, Icon]) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setPage(key);
+                    setFilter('all');
+                    setMobileOpen(false);
+                  }}
+                  className={`flex h-9 w-full items-center gap-3 rounded-lg px-3 text-sm transition-colors ${page === key ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground' : 'text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground'}`}
+                >
+                  <Icon
+                    className={`size-4 ${page === key ? 'text-primary' : ''}`}
+                  />
+                  <span>{text}</span>
+                  {key === 'attention' &&
+                    data.tasks.filter(
+                      (task) =>
+                        task.status === 'open' &&
+                        new Date(task.dueAt) <= new Date(),
+                    ).length > 0 && (
+                      <span className="ml-auto rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                        {
+                          data.tasks.filter(
+                            (task) =>
+                              task.status === 'open' &&
+                              new Date(task.dueAt) <= new Date(),
+                          ).length
+                        }
+                      </span>
+                    )}
+                </button>
+              ))}
+            </div>
+          )}
         </nav>
         <div className="mt-auto rounded-xl border border-sidebar-border bg-background/70 p-3">
           <div className="flex items-center gap-2.5">
@@ -732,11 +821,21 @@ export function OperationsApp({ initialUser }: { initialUser: User }) {
               )}
             </Button>
             <Button
-              onClick={() => openCreate(defaultEntity(page))}
+              onClick={() =>
+                page === 'companies'
+                  ? setLegacyClientOpen(true)
+                  : openCreate(defaultEntity(page))
+              }
               className="ml-1 h-9 gap-2 rounded-lg px-3 shadow-sm"
             >
               <Plus />
-              <span className="hidden sm:inline">Novo</span>
+              <span className="hidden sm:inline">
+                {page === 'companies'
+                  ? 'Adicionar cliente'
+                  : page === 'prospecting'
+                    ? 'Novo lead'
+                    : 'Novo'}
+              </span>
             </Button>
           </div>
         </header>
@@ -764,7 +863,6 @@ export function OperationsApp({ initialUser }: { initialUser: User }) {
               data={data}
               filter={filter}
               setFilter={setFilter}
-              openCreate={openCreate}
               openEdit={openEdit}
               openCompany={setCompany360}
               mutate={mutate}
@@ -839,6 +937,7 @@ export function OperationsApp({ initialUser }: { initialUser: User }) {
               mutate={mutate}
             />
           )}
+          {page === 'help' && <HelpPage data={data} setPage={setPage} />}
         </main>
       </div>
       <input
@@ -903,6 +1002,17 @@ export function OperationsApp({ initialUser }: { initialUser: User }) {
         onClose={() => setPasswordOpen(false)}
         setToast={setToast}
       />
+      <LegacyClientWizard
+        open={legacyClientOpen}
+        busy={busy}
+        onClose={() => setLegacyClientOpen(false)}
+        onSave={(values) =>
+          mutate(
+            { action: 'createLegacyClient', data: values },
+            'Cliente antigo cadastrado com projeto entregue.',
+          )
+        }
+      />
       {toast && (
         <output className="fixed bottom-5 right-5 z-[100] flex max-w-sm items-center gap-2 rounded-xl border bg-card px-4 py-3 text-sm font-medium shadow-xl">
           <CheckCircle2 className="size-4 text-primary" />
@@ -940,16 +1050,20 @@ function Dashboard({
   const openAmount = data.charges
     .filter((item) => ['pending', 'overdue'].includes(item.status))
     .reduce((sum, item) => sum + chargeBalance(data, item), 0);
-  const received = data.payments.reduce(
-    (sum, item) => sum + Number(item.amount),
-    0,
-  );
   const attention = attentionItems(data).slice(0, 7);
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
+  const received = data.payments
+    .filter((item) => new Date(item.paidAt) >= monthStart)
+    .reduce((sum, item) => sum + Number(item.amount), 0);
+  const prospectCompanies = data.companies.filter((item) =>
+    ['lead', 'prospect'].includes(item.lifecycleStatus),
+  );
   const newLeads = data.companies.filter(
-    (item) => new Date(String(item.createdAt)) >= monthStart,
+    (item) =>
+      ['lead', 'prospect'].includes(item.lifecycleStatus) &&
+      new Date(String(item.createdAt)) >= monthStart,
   ).length;
   const contactsThisMonth = data.interactions.filter(
     (item) =>
@@ -964,10 +1078,6 @@ function Dashboard({
       item.prospectingStatus,
     ),
   ).length;
-  const projectRevenue = data.projects.reduce(
-    (sum, item) => sum + Number(item.soldValue || 0),
-    0,
-  );
   return (
     <>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -992,7 +1102,7 @@ function Dashboard({
         <Metric
           label="Recebido"
           value={money(received)}
-          detail="Pagamentos registrados"
+          detail="Pagamentos deste mês"
           icon={Banknote}
         />
       </section>
@@ -1016,42 +1126,21 @@ function Dashboard({
               ['Contatos no mês', contactsThisMonth],
               [
                 'Sem resposta',
-                data.companies.filter(
+                prospectCompanies.filter(
                   (item) => item.prospectingStatus === 'SEM_RESPOSTA',
                 ).length,
               ],
               [
                 'Interessados',
-                data.companies.filter(
+                prospectCompanies.filter(
                   (item) => item.prospectingStatus === 'INTERESSADO',
                 ).length,
               ],
               [
-                'Reuniões',
-                data.companies.filter((item) =>
-                  ['REUNIAO_AGENDADA', 'REUNIAO_REALIZADA'].includes(
-                    item.prospectingStatus,
-                  ),
-                ).length,
-              ],
-              [
-                'Propostas',
-                data.proposals.filter((item) =>
-                  ['sent', 'negotiation'].includes(item.status),
-                ).length,
-              ],
-              [
-                'Em negociação',
-                data.companies.filter(
-                  (item) => item.prospectingStatus === 'NEGOCIACAO',
-                ).length,
-              ],
-              ['Clientes fechados', closed],
-              [
                 'Taxa de conversão',
                 `${closedOrLost ? Math.round((closed / closedOrLost) * 100) : 0}%`,
               ],
-              ['Receita de projetos', money(projectRevenue)],
+              ['Em prospecção', prospectCompanies.length],
             ].map(([metricLabel, value]) => (
               <div key={metricLabel} className="bg-card p-4">
                 <p className="text-[11px] text-muted-foreground">
@@ -1082,7 +1171,7 @@ function Dashboard({
         <Panel title="Ações rápidas" subtitle="Cadastre sem perder o contexto">
           <div className="grid grid-cols-2 gap-2 p-5">
             {[
-              ['Cliente', 'companies', Users],
+              ['Novo lead', 'companies', Users],
               ['Oportunidade', 'opportunities', Target],
               ['Assinatura', 'subscriptions', RefreshCw],
               ['Cobrança', 'charges', CreditCard],
@@ -1129,6 +1218,7 @@ function AttentionPage({
   );
   const withoutAction = data.companies.filter(
     (company) =>
+      ['lead', 'prospect'].includes(company.lifecycleStatus) &&
       !contactedCompanies.has(company.id) &&
       !company.nextActionAt &&
       !company.nextContactAt,
@@ -1198,7 +1288,6 @@ function CompaniesPage({
   data,
   filter,
   setFilter,
-  openCreate,
   openEdit,
   openCompany,
   mutate,
@@ -1207,14 +1296,19 @@ function CompaniesPage({
   data: AppData;
   filter: string;
   setFilter: (value: string) => void;
-  openCreate: (entity: Entity, preset?: FormValues) => void;
   openEdit: (entity: Entity, row: Row) => void;
   openCompany: (id: string) => void;
   mutate: (payload: object, success?: string) => Promise<void>;
   onImport: () => void;
 }) {
   const sourceRows =
-    filter === 'archived' ? data.archivedCompanies : data.companies;
+    filter === 'archived'
+      ? data.archivedCompanies.filter((company) =>
+          ['client', 'former_client'].includes(company.lifecycleStatus),
+        )
+      : data.companies.filter((company) =>
+          ['client', 'former_client'].includes(company.lifecycleStatus),
+        );
   const rows = sourceRows.filter(
     (company) =>
       filter === 'archived' ||
@@ -1227,7 +1321,7 @@ function CompaniesPage({
   return (
     <Panel
       title="Base de relacionamentos"
-      subtitle={`${rows.length} de ${filter === 'archived' ? data.archivedCompanies.length : data.companies.length} empresas`}
+      subtitle={`${rows.length} cliente${rows.length === 1 ? '' : 's'}`}
       action={
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={onImport}>
@@ -1250,11 +1344,8 @@ function CompaniesPage({
         onChange={setFilter}
         options={[
           ['all', 'Todos'],
-          ['lead', 'Leads'],
           ['client', 'Clientes'],
-          ['prospect', 'Prospects'],
           ['former_client', 'Ex-clientes'],
-          ['partner', 'Parceiros'],
           ['recurring', 'Recorrentes'],
           ['no_contact', 'Sem contato'],
           ['archived', 'Arquivadas'],
@@ -1272,6 +1363,13 @@ function CompaniesPage({
             .filter((item) => item.companyId === company.id)
             .map((item) => data.tags.find((tag) => tag.id === item.tagId))
             .filter(Boolean) as Tag[];
+          const activeMaintenance = data.subscriptions.find(
+            (item) => item.companyId === company.id && item.status === 'active',
+          );
+          const deliveredProjects = data.projects.filter(
+            (item) =>
+              item.companyId === company.id && item.status === 'delivered',
+          );
           return (
             <article
               key={company.id}
@@ -1311,6 +1409,16 @@ function CompaniesPage({
                   </Badge>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-1">
+                  <Badge variant="outline">
+                    {deliveredProjects.length
+                      ? `${deliveredProjects.length} projeto${deliveredProjects.length === 1 ? '' : 's'} entregue${deliveredProjects.length === 1 ? '' : 's'}`
+                      : 'Projeto não cadastrado'}
+                  </Badge>
+                  <Badge variant={activeMaintenance ? 'default' : 'secondary'}>
+                    {activeMaintenance
+                      ? `Manutenção ${money(Number(activeMaintenance.amount))}/mês`
+                      : 'Sem plano de manutenção'}
+                  </Badge>
                   {companyTags.map((tag) => (
                     <Badge key={tag.id} variant="outline">
                       {tag.name}
@@ -1386,10 +1494,10 @@ function CompaniesPage({
           );
         })}
         {!rows.length && (
-          <EmptyCards
-            text="Nenhuma empresa neste filtro."
-            onAdd={() => openCreate('companies')}
-          />
+          <div className="col-span-full rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">
+            Nenhum cliente neste filtro. Use “Adicionar cliente” no topo para
+            cadastrar um cliente antigo com projeto entregue.
+          </div>
         )}
       </div>
     </Panel>
@@ -2563,8 +2671,14 @@ function SettingsPage({
   const [domainAlertDays, setDomainAlertDays] = useState(
     (data.settings?.domainAlertDays || [60, 30, 15, 7, 3, 0]).join(', '),
   );
-  const [defaultPostSaleMonths, setDefaultPostSaleMonths] = useState(
+  const [defaultPostSaleMonths] = useState(
     data.settings?.defaultPostSaleMonths || 6,
+  );
+  const [firstPostSaleDays, setFirstPostSaleDays] = useState(
+    data.settings?.firstPostSaleDays || 90,
+  );
+  const [recurringPostSaleDays, setRecurringPostSaleDays] = useState(
+    data.settings?.recurringPostSaleDays || 180,
   );
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
 
@@ -2591,6 +2705,8 @@ function SettingsPage({
           theme,
           domainAlertDays: alertDays,
           defaultPostSaleMonths: Number(defaultPostSaleMonths),
+          firstPostSaleDays: Number(firstPostSaleDays),
+          recurringPostSaleDays: Number(recurringPostSaleDays),
         },
       },
       'Configurações salvas.',
@@ -2736,15 +2852,28 @@ function SettingsPage({
             />
           </label>
           <label className="text-xs font-medium">
-            Pós-venda padrão (meses)
+            Primeiro pós-venda após entrega (dias)
             <Input
               className="mt-2"
               min={1}
-              max={120}
+              max={730}
               type="number"
-              value={defaultPostSaleMonths}
+              value={firstPostSaleDays}
               onChange={(event) =>
-                setDefaultPostSaleMonths(Number(event.target.value))
+                setFirstPostSaleDays(Number(event.target.value))
+              }
+            />
+          </label>
+          <label className="text-xs font-medium">
+            Próximos pós-vendas (dias)
+            <Input
+              className="mt-2"
+              min={1}
+              max={730}
+              type="number"
+              value={recurringPostSaleDays}
+              onChange={(event) =>
+                setRecurringPostSaleDays(Number(event.target.value))
               }
             />
           </label>
@@ -2898,6 +3027,19 @@ function Company360Dialog({
         type: 'payment',
       })),
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const completeness = clientCompleteness({
+    company,
+    hasDeliveredProject: linked(data.projects).some(
+      (item) => item.status === 'delivered',
+    ),
+    hasDomainOrHosting:
+      linked(data.domains).length > 0 ||
+      linked(data.hostingServices).length > 0,
+    hasMaintenanceDecision:
+      company.relationshipStatus === 'active_non_recurring' ||
+      linked(data.subscriptions).length > 0,
+    hasHistory: timeline.length > 0,
+  });
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-[1050px]">
@@ -2915,13 +3057,14 @@ function Company360Dialog({
             />
             {company.name}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="flex flex-wrap items-center gap-2">
             Visão 360º do relacionamento e da operação.
+            <Badge variant="outline">Cadastro {completeness}% completo</Badge>
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 lg:grid-cols-3">
           <MiniSection
-            title="Dados"
+            title="Resumo"
             action={
               <Button
                 size="xs"
@@ -2951,7 +3094,7 @@ function Company360Dialog({
             />
           </MiniSection>
           <MiniSection
-            title="Análise digital"
+            title="Site e oportunidade digital"
             action={
               <Button
                 size="xs"
@@ -3053,7 +3196,7 @@ function Company360Dialog({
               </div>
             ))}
           </MiniSection>
-          <MiniSection title="Próxima ação">
+          <MiniSection title="Pós-venda">
             <InfoRow
               label={
                 company.nextAction ? String(company.nextAction) : 'Não definida'
@@ -3115,7 +3258,7 @@ function Company360Dialog({
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
           <LinkedSection
-            title="Projetos"
+            title="Site / projeto"
             rows={linked(data.projects)}
             render={(row) => `${row.name} · ${label(row.status)}`}
             onAdd={() => openCreate('projects', { companyId: company.id })}
@@ -3137,10 +3280,18 @@ function Company360Dialog({
             onAdd={() => openCreate('charges', { companyId: company.id })}
           />
           <LinkedSection
-            title="Domínios"
+            title="Domínio"
             rows={linked(data.domains)}
             render={(row) => `${row.domain} · ${datePt(row.expirationDate)}`}
             onAdd={() => openCreate('domains', { companyId: company.id })}
+          />
+          <LinkedSection
+            title="Manutenção"
+            rows={linked(data.subscriptions)}
+            render={(row) =>
+              `${row.description} · ${money(Number(row.amount))} · ${label(row.status)}`
+            }
+            onAdd={() => openCreate('subscriptions', { companyId: company.id })}
           />
           <LinkedSection
             title="Propostas"
@@ -3200,7 +3351,7 @@ function Company360Dialog({
             onEdit={(row) => openEdit('emailServices', row as Row)}
           />
         </div>
-        <MiniSection title="Timeline">
+        <MiniSection title="Histórico">
           <div className="max-h-72 divide-y overflow-y-auto">
             {timeline.map((item) => (
               <div key={`${item.type}-${item.id}`} className="py-3">
@@ -3487,6 +3638,119 @@ type CrudPageProps = {
   openEdit: (entity: Entity, row: Row) => void;
   mutate: (payload: object, success?: string) => Promise<void>;
 };
+function HelpPage({
+  data,
+  setPage,
+}: {
+  data: AppData;
+  setPage: (page: PageKey) => void;
+}) {
+  const setup = [
+    [
+      'Clientes revisados',
+      data.companies.some((item) => item.lifecycleStatus === 'client'),
+    ],
+    [
+      'Projeto entregue cadastrado',
+      data.projects.some((item) => item.status === 'delivered'),
+    ],
+    [
+      'Pós-venda agendado',
+      data.companies.some(
+        (item) => item.lifecycleStatus === 'client' && item.nextContactAt,
+      ),
+    ],
+    [
+      'Domínio ou hospedagem registrado',
+      data.domains.length > 0 || data.hostingServices.length > 0,
+    ],
+    [
+      'Manutenção configurada quando aplicável',
+      data.subscriptions.some((item) => item.status === 'active'),
+    ],
+  ] as const;
+  return (
+    <div className="grid gap-5 lg:grid-cols-[.8fr_1.2fr]">
+      <Panel
+        title="Configuração inicial"
+        subtitle="O essencial para o CRM cuidar dos lembretes"
+      >
+        <div className="divide-y">
+          {setup.map(([text, complete]) => (
+            <div key={text} className="flex items-center gap-3 p-4 text-sm">
+              {complete ? (
+                <CheckCircle2 className="size-4 text-emerald-600" />
+              ) : (
+                <Clock3 className="size-4 text-amber-600" />
+              )}
+              <span>{text}</span>
+              <Badge className="ml-auto" variant="outline">
+                {complete ? 'Pronto' : 'Pendente'}
+              </Badge>
+            </div>
+          ))}
+        </div>
+      </Panel>
+      <Panel
+        title="Fluxo recomendado"
+        subtitle="Uma rotina simples para não perder clientes nem oportunidades"
+      >
+        <div className="space-y-3 p-5">
+          {[
+            [
+              '1. Comece no Início',
+              'Confira a fila urgente, follow-ups e situação financeira.',
+              'dashboard',
+            ],
+            [
+              '2. Prospecção',
+              'Crie lotes para pesquisa assistida ou cadastre um lead. Revise as evidências antes do contato.',
+              'prospecting',
+            ],
+            [
+              '3. Registre o resultado',
+              'Depois de cada contato, registre a resposta e já deixe o próximo passo com data.',
+              'prospecting',
+            ],
+            [
+              '4. Converta sem duplicar',
+              'Ao marcar como Convertido, a mesma empresa vira cliente e mantém todo o histórico.',
+              'companies',
+            ],
+            [
+              '5. Cuide do pós-venda',
+              'O primeiro contato é sugerido 90 dias após a entrega; depois, a cada 180 dias.',
+              'companies',
+            ],
+            [
+              '6. Renovações',
+              'Cadastre o vencimento do domínio e a responsabilidade para receber avisos antecipados.',
+              'domains',
+            ],
+          ].map(([title, description, destination]) => (
+            <button
+              key={title}
+              onClick={() => setPage(destination as PageKey)}
+              className="block w-full rounded-xl border p-4 text-left transition-colors hover:bg-muted"
+            >
+              <p className="text-sm font-semibold">{title}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {description}
+              </p>
+            </button>
+          ))}
+          <p className="rounded-xl bg-muted p-4 text-xs text-muted-foreground">
+            Segurança: o Codex opera apenas pelas ferramentas autorizadas.
+            Leituras e escritas comuns podem ser automáticas; exclusões,
+            pagamentos, usuários, configurações críticas e ações em massa
+            continuam fora dessas ferramentas.
+          </p>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
 function PageHeading({ page }: { page: PageKey }) {
   const [title, subtitle] = titles[page];
   return (
@@ -4398,7 +4662,20 @@ function fields(entity: Entity): Field[] {
       { key: 'meetingUrl', label: 'Link', type: 'url' },
       { key: 'location', label: 'Local' },
       { key: 'notes', label: 'Notas', type: 'textarea', wide: true },
-      { key: 'result', label: 'Resultado', type: 'textarea', wide: true },
+      {
+        key: 'result',
+        label: 'Resultado',
+        type: 'select',
+        options: [
+          ['NAO_RESPONDEU', 'Não respondeu'],
+          ['RESPONDEU', 'Respondeu'],
+          ['INTERESSADO', 'Interessado'],
+          ['SEM_INTERESSE', 'Sem interesse'],
+          ['PEDIU_RETORNO', 'Pediu para falar depois'],
+          ['REUNIAO_MARCADA', 'Reunião marcada'],
+          ['PROPOSTA_SOLICITADA', 'Proposta solicitada'],
+        ],
+      },
       { key: 'nextAction', label: 'Próxima ação' },
       { key: 'nextActionAt', label: 'Quando', type: 'datetime-local' },
     ],
@@ -4482,7 +4759,20 @@ function fields(entity: Entity): Field[] {
         required: true,
       },
       { key: 'occurredAt', label: 'Quando', type: 'datetime-local' },
-      { key: 'result', label: 'Resultado', type: 'textarea', wide: true },
+      {
+        key: 'result',
+        label: 'Resultado',
+        type: 'select',
+        options: [
+          ['NAO_RESPONDEU', 'Não respondeu'],
+          ['RESPONDEU', 'Respondeu'],
+          ['INTERESSADO', 'Interessado'],
+          ['SEM_INTERESSE', 'Sem interesse'],
+          ['PEDIU_RETORNO', 'Pediu para falar depois'],
+          ['REUNIAO_MARCADA', 'Reunião marcada'],
+          ['PROPOSTA_SOLICITADA', 'Proposta solicitada'],
+        ],
+      },
       {
         key: 'notes',
         label: 'Observação interna',
@@ -4527,6 +4817,37 @@ function fields(entity: Entity): Field[] {
       { key: 'position', label: 'Ordem', type: 'number', required: true },
       { key: 'enabled', label: 'Regra ativa', type: 'checkbox' },
     ],
+    prospectingBatches: [
+      { key: 'name', label: 'Nome do lote', required: true },
+      { key: 'industry', label: 'Segmento' },
+      { key: 'city', label: 'Cidade' },
+      { key: 'state', label: 'UF' },
+      {
+        key: 'desiredQuantity',
+        label: 'Quantidade desejada',
+        type: 'number',
+        required: true,
+      },
+      {
+        key: 'criteria',
+        label: 'Critérios públicos de pesquisa',
+        type: 'textarea',
+        wide: true,
+      },
+      {
+        key: 'status',
+        label: 'Situação',
+        type: 'select',
+        options: [
+          ['draft', 'Rascunho'],
+          ['researching', 'Pesquisando'],
+          ['review', 'Em revisão'],
+          ['completed', 'Concluído'],
+          ['cancelled', 'Cancelado'],
+        ],
+      },
+    ],
+    prospectingCandidates: [],
     messageTemplates: [
       { key: 'name', label: 'Nome', required: true },
       { key: 'category', label: 'Categoria', required: true },
@@ -4739,6 +5060,8 @@ function defaults(entity: Entity, data: AppData | null): FormValues {
       position: data?.leadScoreRules.length || 0,
       enabled: true,
     },
+    prospectingBatches: { desiredQuantity: 20, status: 'draft' },
+    prospectingCandidates: {},
     messageTemplates: { channel: 'whatsapp' },
     tags: { color: '#64748b' },
   };
@@ -4760,6 +5083,7 @@ function defaultEntity(page: PageKey): Entity {
       messages: 'messageTemplates',
       reports: 'companies',
       settings: 'tags',
+      help: 'tags',
     } as Record<PageKey, Entity>
   )[page];
 }
@@ -4784,6 +5108,8 @@ function entityLabel(entity: Entity) {
       interactions: 'interação ou nota',
       referrals: 'indicação',
       leadScoreRules: 'regra de pontuação',
+      prospectingBatches: 'lote de prospecção',
+      prospectingCandidates: 'candidato de prospecção',
       messageTemplates: 'template',
       tags: 'tag',
     } as Record<Entity, string>

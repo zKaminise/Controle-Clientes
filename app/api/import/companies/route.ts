@@ -354,7 +354,8 @@ export async function POST(request: Request) {
           entity: 'companies',
           data: item.data.company,
         });
-        if (!('id' in row)) throw new Error('A empresa não pôde ser criada.');
+        if (!('id' in row) || typeof row.id !== 'string')
+          throw new Error('A empresa não pôde ser criada.');
         companyId = row.id;
         created += 1;
       }
