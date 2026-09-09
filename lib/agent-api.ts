@@ -9,6 +9,8 @@ import {
   authenticateAgentRequest,
   postgresAgentAuditStore,
 } from '@/lib/agent-auth';
+import { agentIdempotencyKeySchema } from '@/lib/agent-write-validation';
+import type { AgentWriteResult } from '@/lib/agent-write-service';
 
 type AgentApiDependencies = {
   authStore?: AgentAuthStore;
@@ -60,9 +62,130 @@ function normalizeError(error: unknown) {
   }
   return new AgentApiError(
     'AGENT_INTERNAL_ERROR',
-    'Não foi possível concluir a consulta.',
+    'Não foi possível concluir a operação.',
     500,
   );
+}
+
+function requestIdempotencyKey(request: Request) {
+  const value = request.headers.get('idempotency-key');
+  if (!value) {
+    throw new AgentApiError(
+      'AGENT_IDEMPOTENCY_REQUIRED',
+      'O header Idempotency-Key é obrigatório para escritas.',
+      400,
+    );
+  }
+  return agentIdempotencyKeySchema.parse(value);
+}
+
+export async function readAgentJson(request: Request) {
+  if (!request.headers.get('content-type')?.toLowerCase().includes('application/json')) {
+    throw new AgentApiError(
+      'AGENT_CONTENT_TYPE_REQUIRED',
+      'Use Content-Type: application/json.',
+      415,
+    );
+  }
+  const declaredLength = Number(request.headers.get('content-length') || 0);
+  if (declaredLength > 65_536) {
+    throw new AgentApiError('AGENT_PAYLOAD_TOO_LARGE', 'Payload maior que 64 KiB.', 413);
+  }
+  try {
+    const body = await request.text();
+    if (new TextEncoder().encode(body).byteLength > 65_536) {
+      throw new AgentApiError('AGENT_PAYLOAD_TOO_LARGE', 'Payload maior que 64 KiB.', 413);
+    }
+    return JSON.parse(body) as unknown;
+  } catch (error) {
+    if (error instanceof AgentApiError) throw error;
+    throw new AgentApiError('AGENT_INVALID_JSON', 'JSON inválido.', 400);
+  }
+}
+
+export async function withAgentWrite<T>(
+  request: Request,
+  requiredScope: AgentScope,
+  handler: (
+    context: AgentRequestContext,
+    idempotencyKey: string,
+  ) => Promise<AgentWriteResult<T>>,
+  dependencies: AgentApiDependencies = {},
+) {
+  const requestId = randomUUID();
+  const startedAt = Date.now();
+  const auditStore = dependencies.auditStore || postgresAgentAuditStore;
+  let context: AgentRequestContext | undefined;
+  let audit: AgentWriteResult<T>['audit'] | undefined;
+
+  try {
+    context = await authenticateAgentRequest(request, requiredScope, {
+      store: dependencies.authStore,
+      now: dependencies.now,
+      requestId,
+      audience: dependencies.audience,
+      allowedAdminEmail: dependencies.allowedAdminEmail,
+    });
+    const idempotencyKey = requestIdempotencyKey(request);
+    const result = await handler(context, idempotencyKey);
+    audit = result.audit;
+    await auditStore.record({
+      requestId,
+      integrationId: context.integrationId,
+      ownerUserId: context.ownerUserId,
+      tokenPrefix: context.tokenPrefix,
+      method: request.method,
+      path: new URL(request.url).pathname,
+      requiredScope,
+      statusCode: 200,
+      durationMs: Date.now() - startedAt,
+      protocol: 'http',
+      entityType: audit.entityType,
+      entityId: audit.entityId,
+      changes: audit.changes,
+    });
+    return Response.json(
+      {
+        data: result.data,
+        meta: { requestId, idempotentReplay: result.replayed },
+      },
+      { headers: responseHeaders(requestId, context) },
+    );
+  } catch (unknownError) {
+    const error = normalizeError(unknownError);
+    const actor = context || error.actor;
+    try {
+      await auditStore.record({
+        requestId,
+        integrationId: actor.integrationId || null,
+        ownerUserId: actor.ownerUserId || null,
+        tokenPrefix: actor.tokenPrefix || null,
+        method: request.method,
+        path: new URL(request.url).pathname,
+        requiredScope,
+        statusCode: error.status,
+        errorCode: error.code,
+        durationMs: Date.now() - startedAt,
+        protocol: 'http',
+        entityType: audit?.entityType,
+        entityId: audit?.entityId,
+        changes: audit?.changes,
+      });
+    } catch (auditError) {
+      console.error('Falha ao registrar auditoria de escrita do agente.', auditError);
+    }
+    return Response.json(
+      {
+        error: {
+          code: error.code,
+          message: error.message,
+          requestId,
+          details: error.details,
+        },
+      },
+      { status: error.status, headers: responseHeaders(requestId, context) },
+    );
+  }
 }
 
 export async function withAgentRead<T>(

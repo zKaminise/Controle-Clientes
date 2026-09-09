@@ -6,6 +6,7 @@ import {
 } from '@/lib/agent-admin';
 import {
   AGENT_SCOPES,
+  AGENT_READ_SCOPES,
   expectedAgentAudience,
   type AgentScope,
 } from '@/lib/agent-auth';
@@ -47,7 +48,8 @@ const name = argument('name')?.trim() || 'codex-readonly';
 const expiresInDays = Number(argument('expires-in-days') || 60);
 const rateLimitPerMinute = Number(argument('rate-limit') || 60);
 const audience = argument('audience')?.trim() || expectedAgentAudience();
-const requestedScopes = (argument('scopes') || AGENT_SCOPES.join(','))
+// New opaque credentials remain read-only unless write scopes are explicitly requested.
+const requestedScopes = (argument('scopes') || AGENT_READ_SCOPES.join(','))
   .split(',')
   .map((scope) => scope.trim())
   .filter(Boolean) as AgentScope[];

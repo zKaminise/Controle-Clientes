@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { withAgentRead } from '@/lib/agent-api';
 import { getAgentOpportunityStage } from '@/lib/agent-read-service';
+export { PATCH } from './write-route';
 
 export const dynamic = 'force-dynamic';
 

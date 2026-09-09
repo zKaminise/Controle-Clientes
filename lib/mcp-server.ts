@@ -17,11 +17,36 @@ import {
   agentMetricsQuerySchema,
 } from '@/lib/agent-validation';
 import type { McpReadScope } from '@/lib/mcp-config';
+import type { McpWriteScope } from '@/lib/mcp-config';
 import {
   hasMcpScope,
   type McpPrincipal,
   withMcpToolAudit,
 } from '@/lib/mcp-security';
+import {
+  agentCreateFollowUpSchema,
+  agentCreateInteractionSchema,
+  agentCreateLeadSchema,
+  agentCreateReferralSchema,
+  agentIdempotencyKeySchema,
+  agentMoveOpportunitySchema,
+  agentSetInteractionResultSchema,
+  agentSetLeadStageSchema,
+  agentUpdateLeadSchema,
+  agentUpsertDigitalAnalysisSchema,
+} from '@/lib/agent-write-validation';
+import {
+  createAgentFollowUp,
+  createAgentInteraction,
+  createAgentLead,
+  createAgentReferral,
+  moveAgentOpportunity,
+  setAgentInteractionResult,
+  setAgentLeadStage,
+  updateAgentLead,
+  upsertAgentDigitalAnalysis,
+  type AgentWriteResult,
+} from '@/lib/agent-write-service';
 
 const uuid = z.string().uuid();
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -38,7 +63,7 @@ function result(data: unknown) {
   };
 }
 
-function registerReadTool<T extends z.ZodObject<z.ZodRawShape>>(
+function registerReadTool<T extends z.ZodType>(
   server: McpServer,
   principal: McpPrincipal,
   definition: {
@@ -90,6 +115,65 @@ function registerReadTool<T extends z.ZodObject<z.ZodRawShape>>(
           definition.run(definition.inputSchema.parse(input)),
         ),
       );
+    },
+  );
+}
+
+function registerWriteTool<T extends z.ZodType>(
+  server: McpServer,
+  principal: McpPrincipal,
+  definition: {
+    name: string;
+    title: string;
+    description: string;
+    scope: McpWriteScope;
+    inputSchema: T;
+    run: (input: z.infer<T>) => Promise<AgentWriteResult<unknown>>;
+  },
+) {
+  if (!hasMcpScope(principal, definition.scope)) return;
+  const registerTool = server.registerTool.bind(server) as unknown as (
+    name: string,
+    config: {
+      title: string;
+      description: string;
+      inputSchema: z.ZodType;
+      outputSchema: z.ZodType;
+      annotations: {
+        readOnlyHint: boolean;
+        destructiveHint: boolean;
+        idempotentHint: boolean;
+        openWorldHint: boolean;
+      };
+    },
+    callback: (input: unknown, context: unknown) => Promise<ReturnType<typeof result>>,
+  ) => unknown;
+  let completed: AgentWriteResult<unknown> | undefined;
+  registerTool(
+    definition.name,
+    {
+      title: definition.title,
+      description: definition.description,
+      inputSchema: definition.inputSchema,
+      outputSchema: z.object({ data: z.json() }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (input: unknown, context) => {
+      void context;
+      const parsed = definition.inputSchema.parse(input);
+      completed = await withMcpToolAudit(
+        principal,
+        definition.name,
+        definition.scope,
+        () => definition.run(parsed),
+        (value) => value?.audit || completed?.audit || {},
+      );
+      return result({ result: completed.data, idempotentReplay: completed.replayed });
     },
   );
 }
@@ -203,6 +287,90 @@ export function createCrmMcpServer(principal: McpPrincipal) {
       ...input,
       comparePrevious: String(input.comparePrevious),
     })),
+  });
+
+  const actor = { ownerUserId: principal.ownerUserId, actorKey: `oauth:${principal.clientId}` };
+
+  registerWriteTool(server, principal, {
+    name: 'crm_create_lead',
+    title: 'Cadastrar lead',
+    description: 'Cadastra um lead após validar duplicidade. Exige uma chave idempotente única.',
+    scope: 'crm:leads:write',
+    inputSchema: z.object({ idempotencyKey: agentIdempotencyKeySchema, lead: agentCreateLeadSchema }).strict(),
+    run: ({ idempotencyKey, lead }) => createAgentLead(actor, idempotencyKey, lead),
+  });
+
+  registerWriteTool(server, principal, {
+    name: 'crm_update_lead',
+    title: 'Atualizar lead',
+    description: 'Atualiza campos permitidos de um lead com controle otimista por expectedUpdatedAt.',
+    scope: 'crm:leads:write',
+    inputSchema: z.object({ idempotencyKey: agentIdempotencyKeySchema, leadId: uuid, patch: agentUpdateLeadSchema }).strict(),
+    run: ({ idempotencyKey, leadId, patch }) => updateAgentLead(actor, idempotencyKey, leadId, patch),
+  });
+
+  registerWriteTool(server, principal, {
+    name: 'crm_set_lead_stage',
+    title: 'Alterar etapa comercial do lead',
+    description: 'Altera a etapa de prospecção do lead com controle de concorrência.',
+    scope: 'crm:leads:write',
+    inputSchema: z.object({ idempotencyKey: agentIdempotencyKeySchema, leadId: uuid, change: agentSetLeadStageSchema }).strict(),
+    run: ({ idempotencyKey, leadId, change }) => setAgentLeadStage(actor, idempotencyKey, leadId, change),
+  });
+
+  registerWriteTool(server, principal, {
+    name: 'crm_move_opportunity',
+    title: 'Mover oportunidade',
+    description: 'Move uma oportunidade para uma etapa válida e registra o histórico do pipeline.',
+    scope: 'crm:pipeline:write',
+    inputSchema: z.object({ idempotencyKey: agentIdempotencyKeySchema, opportunityId: uuid, change: agentMoveOpportunitySchema }).strict(),
+    run: ({ idempotencyKey, opportunityId, change }) => moveAgentOpportunity(actor, idempotencyKey, opportunityId, change),
+  });
+
+  registerWriteTool(server, principal, {
+    name: 'crm_create_interaction',
+    title: 'Registrar contato',
+    description: 'Registra contato com o lead e cria follow-up atômico quando houver próxima ação.',
+    scope: 'crm:interactions:write',
+    inputSchema: z.object({ idempotencyKey: agentIdempotencyKeySchema, interaction: agentCreateInteractionSchema }).strict(),
+    run: ({ idempotencyKey, interaction }) => createAgentInteraction(actor, idempotencyKey, interaction),
+  });
+
+  registerWriteTool(server, principal, {
+    name: 'crm_set_interaction_result',
+    title: 'Registrar resultado do contato',
+    description: 'Atualiza o resultado de um contato e pode criar o próximo follow-up.',
+    scope: 'crm:interactions:write',
+    inputSchema: z.object({ idempotencyKey: agentIdempotencyKeySchema, interactionId: uuid, result: agentSetInteractionResultSchema }).strict(),
+    run: ({ idempotencyKey, interactionId, result: interactionResult }) =>
+      setAgentInteractionResult(actor, idempotencyKey, interactionId, interactionResult),
+  });
+
+  registerWriteTool(server, principal, {
+    name: 'crm_create_follow_up',
+    title: 'Criar follow-up',
+    description: 'Cria um follow-up para um lead e atualiza sua próxima ação.',
+    scope: 'crm:followups:write',
+    inputSchema: z.object({ idempotencyKey: agentIdempotencyKeySchema, followUp: agentCreateFollowUpSchema }).strict(),
+    run: ({ idempotencyKey, followUp }) => createAgentFollowUp(actor, idempotencyKey, followUp),
+  });
+
+  registerWriteTool(server, principal, {
+    name: 'crm_create_referral',
+    title: 'Registrar indicação',
+    description: 'Registra uma indicação entre duas empresas existentes e distintas.',
+    scope: 'crm:referrals:write',
+    inputSchema: z.object({ idempotencyKey: agentIdempotencyKeySchema, referral: agentCreateReferralSchema }).strict(),
+    run: ({ idempotencyKey, referral }) => createAgentReferral(actor, idempotencyKey, referral),
+  });
+
+  registerWriteTool(server, principal, {
+    name: 'crm_upsert_digital_analysis',
+    title: 'Criar ou atualizar análise digital',
+    description: 'Cria ou atualiza a análise digital e recalcula o lead score pelas regras do CRM.',
+    scope: 'crm:analysis:write',
+    inputSchema: z.object({ idempotencyKey: agentIdempotencyKeySchema, leadId: uuid, analysis: agentUpsertDigitalAnalysisSchema }).strict(),
+    run: ({ idempotencyKey, leadId, analysis }) => upsertAgentDigitalAnalysis(actor, idempotencyKey, leadId, analysis),
   });
 
   return server;

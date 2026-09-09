@@ -1,8 +1,10 @@
-# API de agentes — fase 1 (somente leitura)
+# API de agentes — leituras e escritas controladas
 
 Base de produção: `https://clientes.gabrielmisao.com.br/api/agent/v1`
 
-Esta API é exclusiva para integrações estruturadas. Ela não expõe `/api/app`, não aceita o cookie/sessão do Better Auth e não dá acesso ao Drizzle, PostgreSQL ou `DATABASE_URL`. Nesta fase, todas as rotas aceitam somente `GET`.
+Esta API é exclusiva para integrações estruturadas. Ela não expõe `/api/app`, não aceita o cookie/sessão do Better Auth e não dá acesso ao Drizzle, PostgreSQL ou `DATABASE_URL`. Leituras usam `GET`; as escritas operacionais permitidas usam `POST`, `PATCH` ou `PUT` com scope próprio e idempotência obrigatória.
+
+Para ChatGPT e Codex, a interface preferencial é o MCP remoto com OAuth 2.1 documentado em [MCP-INTEGRATION.md](./MCP-INTEGRATION.md). O Bearer opaco desta página permanece como fallback de migração e não deve ser ampliado sem necessidade.
 
 ## Arquitetura e limites de confiança
 
@@ -96,6 +98,12 @@ Boas práticas: armazene o segredo em cofre de credenciais, conceda somente os s
 | `crm:followups:read` | follow-ups e Minha Atenção                      |
 | `crm:analysis:read`  | score reduzido do lead                          |
 | `crm:metrics:read`   | métricas comerciais                             |
+| `crm:leads:write` | cadastrar/atualizar lead e alterar etapa |
+| `crm:pipeline:write` | mover oportunidade |
+| `crm:interactions:write` | criar contato e registrar resultado |
+| `crm:followups:write` | criar follow-up |
+| `crm:referrals:write` | registrar indicação |
+| `crm:analysis:write` | criar/atualizar análise digital |
 
 Uma credencial sem o scope exigido recebe `403 AGENT_SCOPE_REQUIRED`.
 
@@ -142,7 +150,7 @@ Ferramenta equivalente: `crm_get_opportunity_stage`. Retorna a oportunidade e se
 
 ### `GET /follow-ups`
 
-Ferramenta equivalente: `crm_list_follow_ups`. Aceita `bucket=overdue|today|upcoming|without_action` e `limit` de 1 a 100. Sem `bucket`, retorna os quatro grupos. As fronteiras de hoje usam `America/Sao_Paulo` explicitamente.
+Ferramenta equivalente: `crm_get_follow_ups`. Aceita `bucket=overdue|today|upcoming|without_action` e `limit` de 1 a 100. Sem `bucket`, retorna os quatro grupos. As fronteiras de hoje usam `America/Sao_Paulo` explicitamente.
 
 ### `GET /leads/:id/score`
 
@@ -157,6 +165,41 @@ Ferramenta equivalente: `crm_get_attention`. Consolida tarefas/follow-ups, cobra
 Ferramenta equivalente: `crm_get_commercial_metrics`. Aceita `from`, `to`, `timezone=America/Sao_Paulo` e `comparePrevious=true|false`. Sem período, usa o mês corrente em São Paulo. Retorna novos leads, contatos, sem resposta, interessados, reuniões, propostas, negociações, clientes fechados, taxa de conversão e receita de projetos. A comparação usa um período anterior de igual duração.
 
 As contagens e somas são calculadas no banco. Transições comerciais são lidas da auditoria de atividades; por isso, métricas históricas anteriores à adoção desse registro podem não reconstruir estados antigos.
+
+## Endpoints de escrita
+
+Toda rota abaixo exige `Authorization: Bearer`, `Content-Type: application/json` e `Idempotency-Key`. A chave deve ser única por intenção; repetir o mesmo payload devolve o resultado original, enquanto reutilizá-la com outro payload falha. Payload máximo: 64 KiB.
+
+| Método e rota | Scope | Payload |
+| --- | --- | --- |
+| `POST /leads` | `crm:leads:write` | cadastro validado do lead |
+| `PATCH /leads/:id` | `crm:leads:write` | `expectedUpdatedAt` e campos alterados |
+| `PATCH /leads/:id/stage` | `crm:leads:write` | `expectedUpdatedAt`, `prospectingStatus`, `reason?` |
+| `PATCH /opportunities/:id/stage` | `crm:pipeline:write` | `expectedUpdatedAt`, `pipelineStageId`, `reason?`, `lostReason?` |
+| `POST /interactions` | `crm:interactions:write` | `companyId`, canal, conteúdo, datas e próxima ação opcionais |
+| `PATCH /interactions/:id/result` | `crm:interactions:write` | `expectedUpdatedAt`, `result`, notas/próxima ação opcionais |
+| `POST /follow-ups` | `crm:followups:write` | empresa, título, prioridade, vencimento e lembrete opcionais |
+| `POST /referrals` | `crm:referrals:write` | empresa indicadora, indicada, status e notas |
+| `PUT /leads/:id/digital-analysis` | `crm:analysis:write` | versão opcional e campos da análise |
+
+Datas são ISO 8601 com offset. IDs são UUID. Objetos rejeitam campos desconhecidos. `nextAction` e `nextActionAt` devem ser enviados juntos. Atualizações sobre versão antiga retornam `409 AGENT_VERSION_CONFLICT`. Respostas bem-sucedidas incluem `meta.idempotentReplay`.
+
+Exemplo:
+
+```http
+PATCH /api/agent/v1/leads/UUID/stage HTTP/1.1
+Authorization: Bearer cca_...
+Content-Type: application/json
+Idempotency-Key: crm-stage-20260909-001
+
+{
+  "expectedUpdatedAt": "2026-09-09T14:20:00.000Z",
+  "prospectingStatus": "INTERESSADO",
+  "reason": "Respondeu ao contato"
+}
+```
+
+Criar contato/resultado com próxima ação cria o follow-up no mesmo lote transacional. Mover oportunidade grava histórico. Atualizar análise digital recalcula o score no servidor.
 
 ## Respostas e erros
 
@@ -179,7 +222,7 @@ Erro:
 }
 ```
 
-Códigos usuais: `AGENT_AUTH_REQUIRED` (401), `AGENT_TOKEN_INVALID` (401), `AGENT_INTEGRATION_REVOKED` (401), `AGENT_OWNER_FORBIDDEN` (403), `AGENT_AUDIENCE_INVALID` (403), `AGENT_SCOPE_REQUIRED` (403), `AGENT_INVALID_REQUEST` (400), `AGENT_LEAD_NOT_FOUND` (404), `AGENT_OPPORTUNITY_NOT_FOUND` (404), `AGENT_RATE_LIMITED` (429) e `AGENT_INTERNAL_ERROR` (500). Respostas 429 incluem `Retry-After`.
+Códigos usuais: `AGENT_AUTH_REQUIRED` (401), `AGENT_TOKEN_INVALID` (401), `AGENT_INTEGRATION_REVOKED` (401), `AGENT_OWNER_FORBIDDEN` (403), `AGENT_AUDIENCE_INVALID` (403), `AGENT_SCOPE_REQUIRED` (403), `AGENT_INVALID_REQUEST` (400), `AGENT_IDEMPOTENCY_REQUIRED` (400), `AGENT_IDEMPOTENCY_CONFLICT` (409), `AGENT_VERSION_CONFLICT` (409), `AGENT_LEAD_NOT_FOUND` (404), `AGENT_OPPORTUNITY_NOT_FOUND` (404), `AGENT_RATE_LIMITED` (429) e `AGENT_INTERNAL_ERROR` (500). Respostas 429 incluem `Retry-After`.
 
 ## Configuração
 
@@ -198,16 +241,17 @@ Depois de mudar a audience, emita uma nova credencial; tokens criados para outro
 npm run agent:list
 npm run agent:test-api
 npm run agent:test-security
+npm run agent:test-writes
 npm run agent:verify-queries
 npm run db:verify
 ```
 
 `agent:test-api` é o consumidor HTTP de ponta a ponta. `agent:test-security` cria credenciais técnicas descartáveis para expiração, revogação, audience, scope e rate limit e revoga todas no final. `agent:verify-queries` executa somente leituras diretas para diagnóstico interno; consumidores externos nunca devem usá-lo. `db:verify` confere schema e contagens. Carregue as variáveis de ambiente antes de executar.
 
-## Limitações e próximos passos
+## Limites deliberados
 
-- Não há endpoints de escrita, endpoint genérico, scraping, MCP ou OAuth nesta fase.
-- Ainda não existe credencial ativa após a migração; ela só nasce pelo comando administrativo.
-- O token opaco revogável é uma credencial transitória. A identidade, audience e scopes já permitem migrar para OAuth 2.1 sem alterar os contratos de domínio.
-- Uma fase futura pode publicar essas operações como ferramentas MCP com OAuth 2.1 e aprovação própria, preservando a API como única fronteira com o banco.
+- Não existem endpoints de agente para exclusões, pagamentos, usuários, configurações críticas ou alterações em massa.
+- O token opaco revogável é uma credencial transitória; OAuth 2.1 no MCP é o caminho preferencial.
+- O token `codex-readonly` continua somente leitura. Para qualquer novo consumidor opaco, conceda o conjunto mínimo de scopes explicitamente.
+- O MCP e esta API reutilizam os mesmos serviços de domínio, validações, isolamento por proprietário, idempotência e auditoria.
 - Rate-limit buckets e auditoria devem receber política de retenção antes de volume elevado.

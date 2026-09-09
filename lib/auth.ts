@@ -26,6 +26,7 @@ import { env } from '@/lib/env';
 import {
   MCP_OIDC_SCOPES,
   MCP_READ_SCOPES,
+  MCP_WRITE_SCOPES,
   mcpAllowedAdminEmail,
   mcpResourceUrl,
 } from '@/lib/mcp-config';
@@ -102,7 +103,7 @@ export const auth = betterAuth({
       loginPage: '/login',
       consentPage: '/oauth/consent',
       resource: mcpResourceUrl(),
-      scopes: [...MCP_OIDC_SCOPES, ...MCP_READ_SCOPES],
+      scopes: [...MCP_OIDC_SCOPES, ...MCP_READ_SCOPES, ...MCP_WRITE_SCOPES],
       grantTypes: ['authorization_code', 'refresh_token'],
       accessTokenExpiresIn: 15 * 60,
       refreshTokenExpiresIn: 30 * 24 * 60 * 60,

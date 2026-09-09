@@ -4,6 +4,7 @@ import {
   agentLeadSearchSchema,
   strictSearchParams,
 } from '@/lib/agent-validation';
+export { POST } from './write-route';
 
 export const dynamic = 'force-dynamic';
 

@@ -83,5 +83,32 @@ describe('CRM MCP Gate A', () => {
     const names = response.tools.map((tool) => tool.name).join(' ');
     expect(names).not.toMatch(/delete|payment|user|config|bulk|create|update|set|move|upsert/);
   });
-});
 
+  it('expõe somente as nove escritas normais quando os scopes do Gate B são concedidos', async () => {
+    const response = await listTools([
+      'crm:leads:write',
+      'crm:pipeline:write',
+      'crm:interactions:write',
+      'crm:followups:write',
+      'crm:referrals:write',
+      'crm:analysis:write',
+    ]);
+    expect(response.tools.map((tool) => tool.name).sort()).toEqual([
+      'crm_create_follow_up',
+      'crm_create_interaction',
+      'crm_create_lead',
+      'crm_create_referral',
+      'crm_move_opportunity',
+      'crm_set_interaction_result',
+      'crm_set_lead_stage',
+      'crm_update_lead',
+      'crm_upsert_digital_analysis',
+    ]);
+    expect(response.tools.every((tool) => tool.annotations?.readOnlyHint === false)).toBe(true);
+    expect(response.tools.every((tool) => tool.annotations?.destructiveHint === false)).toBe(true);
+    expect(response.tools.every((tool) => tool.annotations?.idempotentHint === true)).toBe(true);
+    expect(response.tools.map((tool) => tool.name).join(' ')).not.toMatch(
+      /delete|payment|user|config|bulk/,
+    );
+  });
+});

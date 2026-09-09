@@ -169,3 +169,13 @@ Em 09/09/2026 foi ativada a integração `codex-readonly`, com audience exclusiv
 Um consumidor HTTP independente validou em produção pesquisa e detalhe de leads, etapa de prospecção, score, follow-ups, Minha Atenção e métricas comerciais. Testes negativos confirmaram 401 sem token, token inválido, expirado ou revogado; 403 para audience e scope incorretos; 429 após quatro chamadas em uma credencial descartável limitada a três por minuto; e 405 para tentativa de escrita.
 
 Também foram adicionados comandos administrativos para listar integrações sem segredos, revogar uma integração ou token individual e repetir os testes. Nenhum endpoint de escrita, OAuth ou MCP foi introduzido.
+
+## 14. MCP remoto e escritas controladas — fase 3
+
+Em 09/09/2026 foi adicionada a interface preferencial para ChatGPT e Codex: MCP Streamable HTTP em `/mcp`, protegido por OAuth 2.1 Authorization Code com PKCE S256, audience exata, descoberta RFC 9728, CIMD, consentimento do administrador e tokens curtos/revogáveis.
+
+A Gate A publicou oito ferramentas somente leitura e foi validada antes da Gate B. A Gate B adicionou nove ferramentas de escrita operacional com scopes separados, idempotência obrigatória, concorrência otimista e efeitos relacionados atômicos. Exclusões, pagamentos, usuários, configurações críticas e operações em massa continuam ausentes.
+
+As migrations `0006_melodic_tag.sql`, `0007_silly_vengeance.sql` e `0008_small_stingray.sql` são incrementais. A última adiciona a tabela de idempotência e versão aos contatos. O teste integrado de escrita cobre cadastro, replay, conflito de chave, atualização, versão obsoleta, etapa de lead, pipeline, contato, resultado, follow-up, indicação e análise/score, removendo os dados de QA ao final.
+
+A integração `codex-readonly` foi preservada sem alteração de segredo e continua restrita aos cinco scopes de leitura. Sua remoção só deve ocorrer depois do aceite OAuth ponta a ponta e da migração de todos os consumidores. Arquitetura, scopes, ferramentas, conexão e rollback estão em [MCP-INTEGRATION.md](./MCP-INTEGRATION.md); os contratos HTTP atualizados estão em [AGENT-API.md](./AGENT-API.md).

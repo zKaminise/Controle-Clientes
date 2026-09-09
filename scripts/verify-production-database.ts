@@ -9,6 +9,7 @@ const expectedTables = [
   'activities',
   'agent_access_tokens',
   'agent_audit_logs',
+  'agent_idempotency_keys',
   'agent_integrations',
   'agent_rate_limit_buckets',
   'automation_runs',
@@ -130,6 +131,7 @@ const countRows = await Promise.all(
     'agent_integrations',
     'agent_access_tokens',
     'agent_audit_logs',
+    'agent_idempotency_keys',
     'agent_rate_limit_buckets',
   ].map(async (table) => {
     if (!actualTables.includes(table)) return [table, null] as const;

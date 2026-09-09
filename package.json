@@ -27,6 +27,7 @@
     "agent:revoke": "tsx --env-file-if-exists=.env.local scripts/revoke-agent-integration.ts",
     "agent:test-api": "tsx --env-file-if-exists=.env.local scripts/test-agent-api.ts",
     "agent:test-security": "tsx --env-file-if-exists=.env.local scripts/test-agent-api-security.ts",
+    "agent:test-writes": "tsx --env-file-if-exists=.env.local scripts/test-agent-writes.ts",
     "agent:verify-queries": "tsx --env-file-if-exists=.env.local scripts/verify-agent-queries.ts"
   },
   "dependencies": {

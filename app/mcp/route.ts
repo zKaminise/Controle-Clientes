@@ -1,7 +1,7 @@
 import { createMcpHandler, type AuthInfo } from '@modelcontextprotocol/server';
 import { requireMcpAuth } from '@better-auth/mcp';
 import { auth } from '@/lib/auth';
-import { MCP_READ_SCOPES, mcpResourceUrl } from '@/lib/mcp-config';
+import { MCP_READ_SCOPES, MCP_WRITE_SCOPES, mcpResourceUrl } from '@/lib/mcp-config';
 import { createCrmMcpServer } from '@/lib/mcp-server';
 import { authorizeMcpRequest, type McpPrincipal } from '@/lib/mcp-security';
 
@@ -29,11 +29,10 @@ const protectedHandler = requireMcpAuth(
   },
   {
     resource: mcpResourceUrl(),
-    challengeScopes: [...MCP_READ_SCOPES],
+    challengeScopes: [...MCP_READ_SCOPES, ...MCP_WRITE_SCOPES],
   },
 );
 
 export async function POST(request: Request) {
   return protectedHandler(request);
 }
-

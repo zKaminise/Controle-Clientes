@@ -97,12 +97,19 @@ export async function withMcpToolAudit<T>(
   toolName: string,
   requiredScope: McpCrmScope,
   handler: () => Promise<T>,
-  audit?: { entityType?: string; entityId?: string; changes?: Record<string, unknown> },
+  audit?:
+    | { entityType?: string; entityId?: string; changes?: Record<string, unknown> }
+    | ((result: T | undefined) => {
+        entityType?: string;
+        entityId?: string;
+        changes?: Record<string, unknown>;
+      }),
 ) {
   const requestId = randomUUID();
   const startedAt = Date.now();
   let statusCode = 200;
   let errorCode: string | null = null;
+  let result: T | undefined;
   try {
     if (!hasMcpScope(principal, requiredScope)) {
       throw new AgentApiError(
@@ -112,13 +119,15 @@ export async function withMcpToolAudit<T>(
         { requiredScope },
       );
     }
-    return await handler();
+    result = await handler();
+    return result;
   } catch (error) {
     statusCode = error instanceof AgentApiError ? error.status : 500;
     errorCode = error instanceof AgentApiError ? error.code : 'MCP_TOOL_ERROR';
     throw error;
   } finally {
     try {
+      const auditData = typeof audit === 'function' ? audit(result) : audit;
       await db.insert(agentAuditLogs).values({
         requestId,
         ownerUserId: principal.ownerUserId,
@@ -131,13 +140,12 @@ export async function withMcpToolAudit<T>(
         statusCode,
         errorCode,
         durationMs: Date.now() - startedAt,
-        entityType: audit?.entityType,
-        entityId: audit?.entityId,
-        changes: audit?.changes,
+        entityType: auditData?.entityType,
+        entityId: auditData?.entityId,
+        changes: auditData?.changes,
       });
     } catch (auditError) {
       console.error('Falha ao registrar auditoria MCP.', auditError);
     }
   }
 }
-

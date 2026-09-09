@@ -10,12 +10,26 @@ import {
 } from '@/db/schema';
 import { env } from '@/lib/env';
 
-export const AGENT_SCOPES = [
+export const AGENT_READ_SCOPES = [
   'crm:leads:read',
   'crm:pipeline:read',
   'crm:followups:read',
   'crm:analysis:read',
   'crm:metrics:read',
+] as const;
+
+export const AGENT_WRITE_SCOPES = [
+  'crm:leads:write',
+  'crm:pipeline:write',
+  'crm:interactions:write',
+  'crm:followups:write',
+  'crm:referrals:write',
+  'crm:analysis:write',
+] as const;
+
+export const AGENT_SCOPES = [
+  ...AGENT_READ_SCOPES,
+  ...AGENT_WRITE_SCOPES,
 ] as const;
 
 export type AgentScope = (typeof AGENT_SCOPES)[number];
@@ -83,6 +97,12 @@ export interface AgentAuditStore {
     statusCode: number;
     errorCode?: string | null;
     durationMs: number;
+    oauthClientId?: string | null;
+    protocol?: string;
+    toolName?: string | null;
+    entityType?: string | null;
+    entityId?: string | null;
+    changes?: Record<string, unknown> | null;
   }): Promise<void>;
 }
 

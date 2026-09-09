@@ -601,6 +601,34 @@ export const agentAuditLogs = pgTable(
   ],
 );
 
+export const agentIdempotencyKeys = pgTable(
+  'agent_idempotency_keys',
+  {
+    id: id(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    actorKey: varchar('actor_key', { length: 64 }).notNull(),
+    idempotencyKey: varchar('idempotency_key', { length: 128 }).notNull(),
+    operation: varchar('operation', { length: 96 }).notNull(),
+    requestHash: varchar('request_hash', { length: 64 }).notNull(),
+    response: jsonb('response').$type<Record<string, unknown>>().notNull(),
+    statusCode: integer('status_code').notNull(),
+    entityType: varchar('entity_type', { length: 80 }),
+    entityId: text('entity_id'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    uniqueIndex('agent_idempotency_actor_key_uq').on(
+      table.ownerUserId,
+      table.actorKey,
+      table.idempotencyKey,
+    ),
+    index('agent_idempotency_expiry_idx').on(table.expiresAt),
+  ],
+);
+
 export const companies = pgTable(
   'companies',
   {
@@ -1441,6 +1469,7 @@ export const interactions = pgTable(
     nextAction: text('next_action'),
     nextActionAt: timestamp('next_action_at', { withTimezone: true }),
     createdAt: createdAt(),
+    updatedAt: updatedAt(),
   },
   (table) => [
     index('interactions_company_date_idx').on(
