@@ -241,7 +241,9 @@ export const accounts = pgTable(
     id: id(),
     accountId: text('account_id').notNull(),
     providerId: text('provider_id').notNull(),
-    issuer: text('issuer').notNull(),
+    // Legacy Better Auth 1.7.0-1.7.2 column. Kept nullable for a safe
+    // rolling upgrade; current Better Auth no longer writes it.
+    issuer: text('issuer'),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
@@ -261,6 +263,10 @@ export const accounts = pgTable(
   },
   (table) => [
     uniqueIndex('accounts_issuer_account_uq').on(table.issuer, table.accountId),
+    uniqueIndex('accounts_provider_account_uq').on(
+      table.providerId,
+      table.accountId,
+    ),
     index('accounts_user_idx').on(table.userId),
   ],
 );
