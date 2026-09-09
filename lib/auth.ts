@@ -1,10 +1,34 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { jwt } from 'better-auth/plugins';
+import { cimd } from '@better-auth/cimd';
+import { fetchClientMetadataResource } from '@better-auth/cimd/node';
+import { mcp } from '@better-auth/mcp';
 import { db } from '@/db';
-import { accounts, rateLimits, sessions, users, verifications } from '@/db/schema';
+import {
+  accounts,
+  jwks,
+  oauthAccessTokens,
+  oauthClientAssertions,
+  oauthClientResources,
+  oauthClients,
+  oauthConsents,
+  oauthRefreshTokens,
+  oauthResources,
+  rateLimits,
+  sessions,
+  users,
+  verifications,
+} from '@/db/schema';
 import { sendEmail } from '@/lib/email';
 import { passwordResetEmail } from '@/lib/email-templates';
 import { env } from '@/lib/env';
+import {
+  MCP_OIDC_SCOPES,
+  MCP_READ_SCOPES,
+  mcpAllowedAdminEmail,
+  mcpResourceUrl,
+} from '@/lib/mcp-config';
 
 const baseURL = env.BETTER_AUTH_URL;
 
@@ -28,6 +52,14 @@ export const auth = betterAuth({
       account: accounts,
       verification: verifications,
       rateLimit: rateLimits,
+      jwks,
+      oauthClient: oauthClients,
+      oauthResource: oauthResources,
+      oauthClientResource: oauthClientResources,
+      oauthRefreshToken: oauthRefreshTokens,
+      oauthAccessToken: oauthAccessTokens,
+      oauthConsent: oauthConsents,
+      oauthClientAssertion: oauthClientAssertions,
     },
   }),
   emailAndPassword: {
@@ -64,6 +96,45 @@ export const auth = betterAuth({
     },
   },
   trustedOrigins,
+  plugins: [
+    jwt(),
+    mcp({
+      loginPage: '/login',
+      consentPage: '/oauth/consent',
+      resource: mcpResourceUrl(),
+      scopes: [...MCP_OIDC_SCOPES, ...MCP_READ_SCOPES],
+      grantTypes: ['authorization_code', 'refresh_token'],
+      accessTokenExpiresIn: 15 * 60,
+      refreshTokenExpiresIn: 30 * 24 * 60 * 60,
+      codeExpiresIn: 5 * 60,
+      refreshTokenReuseInterval: 0,
+      allowDynamicClientRegistration: false,
+      allowUnauthenticatedClientRegistration: false,
+      clientRegistrationRequirePKCE: true,
+      enforcePerClientResources: true,
+      clientPrivileges: () => false,
+      resourcePrivileges: () => false,
+      customAccessTokenClaims: ({ user }) => {
+        if (!user || user.email.toLowerCase() !== mcpAllowedAdminEmail()) {
+          throw new Error('Conta não autorizada para integração MCP.');
+        }
+        return { crm_role: 'admin' };
+      },
+    }),
+    cimd({
+      fetchClientMetadataResource,
+      metadataProfile: 'mcp-2026-07-28',
+      metadataRevalidationInterval: '60m',
+      maxCacheEntries: 100,
+      metadataFetchPolicy: {
+        minimumFetchInterval: 2,
+        maximumConcurrentFetches: 8,
+        maximumConcurrentFetchesPerOrigin: 2,
+        maximumFetchesPerMinute: 60,
+        maximumFetchesPerOriginPerMinute: 20,
+      },
+    }),
+  ],
   advanced: {
     useSecureCookies: process.env.NODE_ENV === 'production',
     database: {
