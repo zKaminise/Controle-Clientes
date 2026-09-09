@@ -77,8 +77,8 @@ const nullableRating = z.preprocess(
   (value) => (value === '' || value === null ? null : value),
   z.coerce.number().int().min(0).max(5).nullable().optional(),
 );
-const scoreLevel = z.enum(['BAIXA', 'MEDIA', 'ALTA', 'MUITO_ALTA']);
-const prospectingStatus = z.enum([
+export const scoreLevel = z.enum(['BAIXA', 'MEDIA', 'ALTA', 'MUITO_ALTA']);
+export const prospectingStatus = z.enum([
   'NOVO_LEAD',
   'PESQUISANDO',
   'PRONTO_PARA_CONTATO',

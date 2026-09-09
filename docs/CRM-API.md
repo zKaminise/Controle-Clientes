@@ -2,6 +2,8 @@
 
 Todas as rotas abaixo exigem uma sessão válida do administrador. Elas não aceitam acesso anônimo nem chaves públicas. Respostas de erro usam `{ "error": "mensagem" }`.
 
+Estes contratos são os usados pelo frontend e permanecem separados da API externa de agentes descrita em [AGENT-API.md](./AGENT-API.md). O cookie administrativo nunca autentica `/api/agent/v1`.
+
 ## Leads
 
 ### `GET /api/crm/leads`
@@ -59,6 +61,10 @@ Retorna quatro grupos: `overdue`, `today`, `upcoming` e `leadsWithoutAction`.
 Cria um follow-up usando o contrato de tarefa: empresa, título, tipo, motivo, prioridade, vencimento, lembrete e descrição.
 
 ## Pipeline
+
+### Dois conceitos de etapa
+
+`company.prospectingStatus` é a situação operacional da empresa na cadência de prospecção. `opportunity.pipelineStageId` é a posição de uma oportunidade específica no funil configurável. Uma empresa pode não ter oportunidade ou pode ter várias; portanto, esses campos são independentes e não devem ser tratados como aliases.
 
 ### `GET /api/crm/pipeline`
 

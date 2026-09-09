@@ -147,3 +147,17 @@ Commits principais:
 - O componente legado `operations-app.tsx` ainda concentra páginas antigas; a nova área de prospecção e o importador já foram separados, mas uma refatoração total deve ser gradual.
 - As grades antigas ainda carregam o conjunto operacional completo; a nova API de leads já possui paginação, mas as telas legadas podem precisar migrar para ela quando o volume crescer.
 - Testes de navegador automatizados não foram adicionados porque o projeto ainda não possui Playwright; o roteiro manual cobre a primeira publicação.
+
+## 12. API de agentes — fase 1
+
+Em 08/09/2026 foi adicionada uma superfície versionada e somente leitura em `/api/agent/v1`, sem alterar nem substituir as APIs de sessão usadas pelo frontend.
+
+- autenticação Bearer separada do Better Auth, com hash de token, expiração, revogação, audience, scopes e bloqueio pela conta administrativa autorizada;
+- rate limit atômico por IP antes da autenticação e por integração após a autenticação;
+- auditoria com request ID, identidade, scope, rota, status e duração, sem persistir o token completo;
+- oito consultas específicas para leads, etapas, follow-ups, score, Minha Atenção e métricas;
+- filtros estritos, paginação no banco e timezone `America/Sao_Paulo` nas fronteiras operacionais;
+- transações em lote nos efeitos relacionados de contato/follow-up, mudança de etapa e conclusão de tarefa;
+- testes de contrato das principais APIs atuais para impedir mudanças silenciosas no frontend.
+
+A migration incremental `0005_worthless_jigsaw.sql` adiciona apenas quatro tabelas internas da integração. Após a aplicação, as contagens comerciais anteriores e posteriores permaneceram idênticas. Arquitetura, uso, contratos e limitações estão em [AGENT-API.md](./AGENT-API.md).

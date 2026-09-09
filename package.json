@@ -21,7 +21,10 @@
     "db:clean-qa": "tsx scripts/clean-production-qa.ts",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx scripts/seed.ts",
-    "create-admin": "tsx scripts/create-admin.ts"
+    "create-admin": "tsx scripts/create-admin.ts",
+    "agent:create-token": "tsx scripts/create-agent-token.ts",
+    "agent:revoke": "tsx scripts/revoke-agent-integration.ts",
+    "agent:verify-queries": "tsx scripts/verify-agent-queries.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

@@ -5,6 +5,7 @@ import {
   domainTaskKey,
   initialChargeStatus,
   isoDateInTimeZone,
+  localDateStartUtc,
   minorUnitsToMoney,
   moneyToMinorUnits,
   nextPostSaleDate,
@@ -15,6 +16,7 @@ import {
   pipelineTransition,
   shouldMarkOverdue,
   subscriptionDatesThroughHorizon,
+  zonedDayRange,
 } from '@/lib/business';
 import { renderTemplate } from '@/lib/email-templates';
 
@@ -101,6 +103,16 @@ describe('automation idempotency inputs', () => {
     expect(isoDateInTimeZone(new Date('2026-08-30T01:00:00Z'))).toBe(
       '2026-08-29',
     ));
+  it('uses São Paulo midnight as the boundary for operational queries', () => {
+    expect(localDateStartUtc('2026-09-08').toISOString()).toBe(
+      '2026-09-08T03:00:00.000Z',
+    );
+    expect(zonedDayRange(new Date('2026-09-09T01:30:00Z'))).toMatchObject({
+      date: '2026-09-08',
+      start: new Date('2026-09-08T03:00:00.000Z'),
+      end: new Date('2026-09-09T03:00:00.000Z'),
+    });
+  });
 });
 
 describe('pipeline and formatting rules', () => {

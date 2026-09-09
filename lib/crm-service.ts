@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notExists } from 'drizzle-orm';
 import { db } from '@/db';
 import {
   companies,
@@ -10,6 +10,7 @@ import {
   referrals,
   tasks,
 } from '@/db/schema';
+import { APP_TIMEZONE, zonedDayRange } from '@/lib/business';
 
 export type LeadFilters = {
   query?: string;
@@ -249,12 +250,21 @@ export async function getLeadDetails(ownerUserId: string, companyId: string) {
   };
 }
 
-export async function getTodayFollowUps(ownerUserId: string, now = new Date()) {
-  const [taskRows, companyRows, interactionRows] = await Promise.all([
+export async function getTodayFollowUps(
+  ownerUserId: string,
+  now = new Date(),
+  timeZone = APP_TIMEZONE,
+) {
+  const [taskRows, companyRows] = await Promise.all([
     db
       .select()
       .from(tasks)
-      .where(eq(tasks.ownerUserId, ownerUserId))
+      .where(
+        and(
+          eq(tasks.ownerUserId, ownerUserId),
+          inArray(tasks.status, ['open', 'snoozed']),
+        ),
+      )
       .orderBy(tasks.dueAt),
     db
       .select()
@@ -263,31 +273,27 @@ export async function getTodayFollowUps(ownerUserId: string, now = new Date()) {
         and(
           eq(companies.ownerUserId, ownerUserId),
           isNull(companies.archivedAt),
+          isNull(companies.nextActionAt),
+          isNull(companies.nextContactAt),
+          notExists(
+            db
+              .select({ id: interactions.id })
+              .from(interactions)
+              .where(
+                and(
+                  eq(interactions.ownerUserId, ownerUserId),
+                  eq(interactions.companyId, companies.id),
+                ),
+              ),
+          ),
         ),
       ),
-    db
-      .select()
-      .from(interactions)
-      .where(eq(interactions.ownerUserId, ownerUserId)),
   ]);
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  const open = taskRows.filter(
-    (task) => task.status === 'open' || task.status === 'snoozed',
-  );
-  const knownCompanies = new Set(interactionRows.map((row) => row.companyId));
-  const withoutAction = companyRows.filter(
-    (company) =>
-      !knownCompanies.has(company.id) &&
-      !company.nextActionAt &&
-      !company.nextContactAt,
-  );
+  const { start, end } = zonedDayRange(now, timeZone);
   return {
-    overdue: open.filter((task) => task.dueAt < start),
-    today: open.filter((task) => task.dueAt >= start && task.dueAt < end),
-    upcoming: open.filter((task) => task.dueAt >= end),
-    leadsWithoutAction: withoutAction,
+    overdue: taskRows.filter((task) => task.dueAt < start),
+    today: taskRows.filter((task) => task.dueAt >= start && task.dueAt < end),
+    upcoming: taskRows.filter((task) => task.dueAt >= end),
+    leadsWithoutAction: companyRows,
   };
 }

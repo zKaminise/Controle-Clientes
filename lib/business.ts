@@ -1,6 +1,96 @@
 export const APP_TIMEZONE = 'America/Sao_Paulo';
 export const DEFAULT_DOMAIN_THRESHOLDS = [60, 30, 15, 7, 3, 0] as const;
 
+type DateParts = { year: number; month: number; day: number };
+
+function datePartsInTimeZone(date: Date, timeZone: string): DateParts {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+  };
+}
+
+function timeZoneOffsetMs(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts.map((part) => [part.type, part.value]),
+  );
+  const representedAsUtc = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second),
+  );
+  return representedAsUtc - Math.floor(date.getTime() / 1000) * 1000;
+}
+
+export function localDateStartUtc(dateValue: string, timeZone = APP_TIMEZONE) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue);
+  if (!match) throw new Error('Data inválida. Use YYYY-MM-DD.');
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const utcWallClock = Date.UTC(year, month - 1, day);
+  let candidate = new Date(utcWallClock);
+  candidate = new Date(utcWallClock - timeZoneOffsetMs(candidate, timeZone));
+  candidate = new Date(utcWallClock - timeZoneOffsetMs(candidate, timeZone));
+  return candidate;
+}
+
+export function addCalendarDays(dateValue: string, days: number) {
+  const [year, month, day] = dateValue.split('-').map(Number);
+  if (!year || !month || !day) throw new Error('Data inválida.');
+  const result = new Date(Date.UTC(year, month - 1, day + days));
+  return result.toISOString().slice(0, 10);
+}
+
+export function zonedDayRange(now = new Date(), timeZone = APP_TIMEZONE) {
+  const parts = datePartsInTimeZone(now, timeZone);
+  const date = `${String(parts.year).padStart(4, '0')}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+  return {
+    date,
+    start: localDateStartUtc(date, timeZone),
+    end: localDateStartUtc(addCalendarDays(date, 1), timeZone),
+  };
+}
+
+export function zonedDateRange(
+  from: string,
+  to: string,
+  timeZone = APP_TIMEZONE,
+) {
+  if (from > to) throw new Error('A data inicial deve ser anterior à final.');
+  return {
+    from,
+    to,
+    start: localDateStartUtc(from, timeZone),
+    end: localDateStartUtc(addCalendarDays(to, 1), timeZone),
+    timeZone,
+  };
+}
+
 export type SubscriptionFrequency =
   | 'monthly'
   | 'quarterly'

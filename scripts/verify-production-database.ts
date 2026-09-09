@@ -7,6 +7,10 @@ if (!databaseUrl)
 const expectedTables = [
   'accounts',
   'activities',
+  'agent_access_tokens',
+  'agent_audit_logs',
+  'agent_integrations',
+  'agent_rate_limit_buckets',
   'automation_runs',
   'charges',
   'companies',
@@ -115,6 +119,10 @@ const countRows = await Promise.all(
     'lead_score_rules',
     'message_templates',
     'settings',
+    'agent_integrations',
+    'agent_access_tokens',
+    'agent_audit_logs',
+    'agent_rate_limit_buckets',
   ].map(async (table) => {
     if (!actualTables.includes(table)) return [table, null] as const;
     const result = await sql.query(

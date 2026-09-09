@@ -194,6 +194,10 @@ export const themePreference = pgEnum('theme_preference', [
   'dark',
   'system',
 ]);
+export const agentIntegrationStatus = pgEnum('agent_integration_status', [
+  'active',
+  'revoked',
+]);
 
 // Better Auth core tables. Password hashes live only in accounts.password.
 export const users = pgTable(
@@ -283,6 +287,117 @@ export const rateLimits = pgTable(
     lastRequest: bigint('last_request', { mode: 'number' }).notNull(),
   },
   (table) => [uniqueIndex('rate_limits_key_uq').on(table.key)],
+);
+
+// Agent API credentials are deliberately separate from Better Auth sessions.
+// Access tokens are stored only as SHA-256 hashes and can be revoked independently.
+export const agentIntegrations = pgTable(
+  'agent_integrations',
+  {
+    id: id(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    clientId: varchar('client_id', { length: 96 }).notNull(),
+    name: text('name').notNull(),
+    audience: text('audience').notNull(),
+    scopes: jsonb('scopes').$type<string[]>().default([]).notNull(),
+    status: agentIntegrationStatus('status').default('active').notNull(),
+    rateLimitPerMinute: integer('rate_limit_per_minute').default(60).notNull(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    uniqueIndex('agent_integrations_client_id_uq').on(table.clientId),
+    index('agent_integrations_owner_status_idx').on(
+      table.ownerUserId,
+      table.status,
+    ),
+    check(
+      'agent_integrations_rate_limit_range',
+      sql`${table.rateLimitPerMinute} between 1 and 600`,
+    ),
+  ],
+);
+
+export const agentAccessTokens = pgTable(
+  'agent_access_tokens',
+  {
+    id: id(),
+    integrationId: uuid('integration_id')
+      .notNull()
+      .references(() => agentIntegrations.id, { onDelete: 'cascade' }),
+    tokenPrefix: varchar('token_prefix', { length: 24 }).notNull(),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    uniqueIndex('agent_access_tokens_hash_uq').on(table.tokenHash),
+    index('agent_access_tokens_integration_expiry_idx').on(
+      table.integrationId,
+      table.expiresAt,
+    ),
+  ],
+);
+
+export const agentRateLimitBuckets = pgTable(
+  'agent_rate_limit_buckets',
+  {
+    bucketKey: varchar('bucket_key', { length: 128 }).notNull(),
+    windowStart: timestamp('window_start', { withTimezone: true }).notNull(),
+    requestCount: integer('request_count').default(1).notNull(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.bucketKey, table.windowStart],
+      name: 'agent_rate_limit_buckets_pk',
+    }),
+    index('agent_rate_limit_buckets_window_idx').on(table.windowStart),
+    check(
+      'agent_rate_limit_buckets_count_positive',
+      sql`${table.requestCount} > 0`,
+    ),
+  ],
+);
+
+export const agentAuditLogs = pgTable(
+  'agent_audit_logs',
+  {
+    id: id(),
+    requestId: uuid('request_id').notNull(),
+    integrationId: uuid('integration_id').references(
+      () => agentIntegrations.id,
+      { onDelete: 'set null' },
+    ),
+    ownerUserId: uuid('owner_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    tokenPrefix: varchar('token_prefix', { length: 24 }),
+    method: varchar('method', { length: 12 }).notNull(),
+    path: text('path').notNull(),
+    requiredScope: varchar('required_scope', { length: 80 }),
+    statusCode: integer('status_code').notNull(),
+    errorCode: varchar('error_code', { length: 80 }),
+    durationMs: integer('duration_ms').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    uniqueIndex('agent_audit_logs_request_id_uq').on(table.requestId),
+    index('agent_audit_logs_integration_date_idx').on(
+      table.integrationId,
+      table.createdAt,
+    ),
+    index('agent_audit_logs_owner_date_idx').on(
+      table.ownerUserId,
+      table.createdAt,
+    ),
+  ],
 );
 
 export const companies = pgTable(
@@ -1317,6 +1432,10 @@ export const automationRuns = pgTable(
 );
 
 export const schema = {
+  agentIntegrations,
+  agentAccessTokens,
+  agentRateLimitBuckets,
+  agentAuditLogs,
   users,
   sessions,
   accounts,

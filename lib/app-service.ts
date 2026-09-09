@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import {
@@ -92,7 +93,19 @@ async function logActivity(input: {
   description: string;
   metadata?: Record<string, unknown>;
 }) {
-  await db.insert(activities).values({
+  await activityStatement(input);
+}
+
+function activityStatement(input: {
+  ownerUserId: string;
+  companyId?: string | null;
+  entityType: string;
+  entityId?: string | null;
+  action: string;
+  description: string;
+  metadata?: Record<string, unknown>;
+}) {
+  return db.insert(activities).values({
     ownerUserId: input.ownerUserId,
     companyId: input.companyId || null,
     entityType: input.entityType,
@@ -595,6 +608,71 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
           }
         : {}),
     } as typeof companies.$inferInsert;
+
+    if (input.entity === 'interactions') {
+      const interaction = parsed as {
+        companyId: string;
+        occurredAt?: Date | null;
+        nextAction?: string | null;
+        nextActionAt?: Date | null;
+      };
+      const company = await ownedCompany(ownerUserId, interaction.companyId);
+      const rowId = randomUUID();
+      const occurredAt = interaction.occurredAt || new Date();
+      const occurredDate = occurredAt.toISOString().slice(0, 10);
+      const nextContactAt = company.contactFrequencyMonths
+        ? dateAtNoon(
+            nextPostSaleDate(occurredDate, company.contactFrequencyMonths),
+          )
+        : company.nextContactAt;
+      const insertInteraction = db.insert(interactions).values({
+        ...(values as unknown as typeof interactions.$inferInsert),
+        id: rowId,
+        occurredAt,
+      });
+      const updateCompany = db
+        .update(companies)
+        .set({
+          lastContactAt: occurredAt,
+          nextContactAt,
+          nextAction: interaction.nextAction || company.nextAction,
+          nextActionAt: interaction.nextActionAt || company.nextActionAt,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(companies.id, interaction.companyId),
+            eq(companies.ownerUserId, ownerUserId),
+          ),
+        );
+      const activity = activityStatement({
+        ownerUserId,
+        companyId: interaction.companyId,
+        entityType: input.entity,
+        entityId: rowId,
+        action: 'created',
+        description: `${input.entity} criado.`,
+      });
+      if (interaction.nextAction && interaction.nextActionAt) {
+        await db.batch([
+          insertInteraction,
+          updateCompany,
+          db.insert(tasks).values({
+            ownerUserId,
+            companyId: interaction.companyId,
+            title: interaction.nextAction,
+            type: 'follow_up',
+            dueAt: interaction.nextActionAt,
+            source: 'manual',
+          }),
+          activity,
+        ]);
+      } else {
+        await db.batch([insertInteraction, updateCompany, activity]);
+      }
+      return { id: rowId };
+    }
+
     const [row] = await db
       .insert(table)
       .values(values)
@@ -635,55 +713,6 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
     }
     if (input.entity === 'leadScoreRules')
       await recalculateOwnerScores(ownerUserId);
-    if (input.entity === 'interactions') {
-      const interaction = parsed as {
-        companyId: string;
-        occurredAt?: Date | null;
-        nextAction?: string | null;
-        nextActionAt?: Date | null;
-      };
-      const [company] = await db
-        .select()
-        .from(companies)
-        .where(
-          and(
-            eq(companies.id, interaction.companyId),
-            eq(companies.ownerUserId, ownerUserId),
-          ),
-        )
-        .limit(1);
-      const occurredAt = interaction.occurredAt || new Date();
-      const occurredDate = occurredAt.toISOString().slice(0, 10);
-      const nextContactAt = company?.contactFrequencyMonths
-        ? dateAtNoon(
-            nextPostSaleDate(occurredDate, company.contactFrequencyMonths),
-          )
-        : company?.nextContactAt;
-      await db
-        .update(companies)
-        .set({
-          lastContactAt: occurredAt,
-          nextContactAt,
-          nextAction: interaction.nextAction || company?.nextAction,
-          nextActionAt: interaction.nextActionAt || company?.nextActionAt,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(companies.id, interaction.companyId),
-            eq(companies.ownerUserId, ownerUserId),
-          ),
-        );
-      if (interaction.nextAction && interaction.nextActionAt)
-        await db.insert(tasks).values({
-          ownerUserId,
-          companyId: interaction.companyId,
-          title: interaction.nextAction,
-          type: 'follow_up',
-          dueAt: interaction.nextActionAt,
-          source: 'manual',
-        });
-    }
     const companyId =
       'companyId' in parsed && typeof parsed.companyId === 'string'
         ? parsed.companyId
@@ -929,7 +958,7 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
       isLost: stage.isLost,
       lostReason: input.lostReason,
     });
-    await db
+    const updateOpportunity = db
       .update(opportunities)
       .set({
         pipelineStageId: stage.id,
@@ -944,7 +973,7 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
           eq(opportunities.ownerUserId, ownerUserId),
         ),
       );
-    await db.insert(pipelineHistory).values({
+    const insertHistory = db.insert(pipelineHistory).values({
       ownerUserId,
       companyId: opportunity.companyId,
       opportunityId: opportunity.id,
@@ -953,21 +982,7 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
       reason: input.lostReason || null,
       changedBy: ownerUserId,
     });
-    if (transition.companyLifecycle)
-      await db
-        .update(companies)
-        .set({
-          lifecycleStatus: transition.companyLifecycle,
-          relationshipStatus: 'active_non_recurring',
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(companies.id, opportunity.companyId),
-            eq(companies.ownerUserId, ownerUserId),
-          ),
-        );
-    await logActivity({
+    const activity = activityStatement({
       ownerUserId,
       companyId: opportunity.companyId,
       entityType: 'opportunity',
@@ -976,6 +991,28 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
       description: `Oportunidade movida para ${stage.name}.`,
       metadata: { stageId: stage.id, stage: stage.slug },
     });
+    if (transition.companyLifecycle) {
+      await db.batch([
+        updateOpportunity,
+        insertHistory,
+        db
+          .update(companies)
+          .set({
+            lifecycleStatus: transition.companyLifecycle,
+            relationshipStatus: 'active_non_recurring',
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(companies.id, opportunity.companyId),
+              eq(companies.ownerUserId, ownerUserId),
+            ),
+          ),
+        activity,
+      ]);
+    } else {
+      await db.batch([updateOpportunity, insertHistory, activity]);
+    }
     return { id: input.id };
   }
 
@@ -1045,15 +1082,24 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
 
   if (input.action === 'completeTask') {
     const [task] = await db
-      .update(tasks)
-      .set({
-        status: 'completed',
-        completedAt: new Date(),
-        updatedAt: new Date(),
-      })
+      .select()
+      .from(tasks)
       .where(and(eq(tasks.id, input.id), eq(tasks.ownerUserId, ownerUserId)))
-      .returning();
+      .limit(1);
     if (!task) throw new Error('Tarefa não encontrada.');
+    const now = new Date();
+    const completeTask = db
+      .update(tasks)
+      .set({ status: 'completed', completedAt: now, updatedAt: now })
+      .where(and(eq(tasks.id, input.id), eq(tasks.ownerUserId, ownerUserId)));
+    const activity = activityStatement({
+      ownerUserId,
+      companyId: task.companyId,
+      entityType: 'task',
+      entityId: task.id,
+      action: 'completed',
+      description: `Tarefa concluída: ${task.title}.`,
+    });
     if (input.nextAction) {
       const requestedDueAt = input.nextAction.dueAt;
       const dueAt =
@@ -1062,25 +1108,23 @@ export async function mutateApp(ownerUserId: string, rawInput: unknown) {
           : requestedDueAt
             ? new Date(requestedDueAt)
             : new Date();
-      await db.insert(tasks).values({
-        ownerUserId,
-        companyId: task.companyId,
-        opportunityId: task.opportunityId,
-        title: input.nextAction.title,
-        type: task.type,
-        dueAt,
-        priority: task.priority,
-        source: 'manual',
-      });
+      await db.batch([
+        completeTask,
+        db.insert(tasks).values({
+          ownerUserId,
+          companyId: task.companyId,
+          opportunityId: task.opportunityId,
+          title: input.nextAction.title,
+          type: task.type,
+          dueAt,
+          priority: task.priority,
+          source: 'manual',
+        }),
+        activity,
+      ]);
+    } else {
+      await db.batch([completeTask, activity]);
     }
-    await logActivity({
-      ownerUserId,
-      companyId: task.companyId,
-      entityType: 'task',
-      entityId: task.id,
-      action: 'completed',
-      description: `Tarefa concluída: ${task.title}.`,
-    });
     return { id: task.id };
   }
 
