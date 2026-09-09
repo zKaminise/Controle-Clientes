@@ -5,12 +5,28 @@ import { LoginForm } from './login-form';
 
 export const dynamic = 'force-dynamic';
 
-export default async function LoginPage() {
+type LoginPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const params = await searchParams;
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) value.forEach((item) => query.append(key, item));
+    else if (value) query.set(key, value);
+  }
+  let session = null;
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
-    if (session) redirect('/');
+    session = await auth.api.getSession({ headers: await headers() });
   } catch {
     // Configuration may not exist yet in a clean local checkout.
+  }
+  if (session) {
+    if (params.response_type === 'code' && params.client_id) {
+      redirect(`/api/auth/oauth2/authorize?${query.toString()}`);
+    }
+    redirect('/');
   }
   return <LoginForm />;
 }

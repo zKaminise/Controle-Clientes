@@ -2,14 +2,12 @@
 
 import { ArrowRight, Command, LoaderCircle, LockKeyhole } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authClient } from '@/lib/auth-client';
 
 export function LoginForm() {
-  const router = useRouter();
   const [email, setEmail] = useState('gabriel.misao08@gmail.com');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -25,8 +23,7 @@ export function LoginForm() {
       setError(result.error.message || 'E-mail ou senha inválidos.');
       return;
     }
-    router.replace('/');
-    router.refresh();
+    window.location.reload();
   }
 
   return (
