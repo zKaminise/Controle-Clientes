@@ -21,19 +21,62 @@ Tabelas internas:
 
 ## Autenticação
 
-Crie a credencial em ambiente administrativo seguro, com as variáveis de produção carregadas:
+### Primeiro consumidor / Getting Started
 
-```bash
-npm run agent:create-token -- --name "ChatGPT/Codex leitura" --expires-in-days 90 --rate-limit 60
+1. Confirme que `.env.local` está fora do Git e contém as variáveis server-side necessárias. Para o consumidor local, use:
+
+```dotenv
+AGENT_API_BASE_URL=https://clientes.gabrielmisao.com.br/api/agent/v1
+AGENT_API_TOKEN=
 ```
 
-Para limitar os scopes:
+Nunca grave o token real em `.env.example` ou em outro arquivo versionado.
+
+2. Emita uma credencial de 60 dias para o primeiro consumidor. No Windows, a opção recomendada entrega o segredo diretamente ao clipboard sem imprimi-lo:
 
 ```bash
-npm run agent:create-token -- --name "Consulta de leads" --scopes crm:leads:read,crm:analysis:read
+npm run agent:create-token -- --name codex-readonly --audience https://clientes.gabrielmisao.com.br/api/agent/v1 --scopes crm:leads:read,crm:pipeline:read,crm:followups:read,crm:analysis:read,crm:metrics:read --expires-in-days 60 --rate-limit 60 --copy-to-clipboard
 ```
 
-O comando mostra o token completo uma única vez. Guarde-o em um cofre de segredos e envie:
+O banco recebe apenas o hash SHA-256. O valor completo fica somente no processo e no clipboard. Se o administrador preferir visualizá-lo, `--show-token` funciona exclusivamente em um terminal interativo TTY e deve ser usado longe de gravações ou compartilhamento de tela.
+
+3. Execute o consumidor real sem salvar ou imprimir o segredo:
+
+```powershell
+$env:AGENT_API_BASE_URL='https://clientes.gabrielmisao.com.br/api/agent/v1'
+$env:AGENT_API_TOKEN=Get-Clipboard
+npm run agent:test-api
+Remove-Item Env:AGENT_API_TOKEN
+```
+
+O relatório do consumidor contém apenas códigos HTTP, contagens, campos validados e request IDs. Não mostra nomes, IDs de leads, contatos ou o Bearer token.
+
+4. Para uma consulta manual segura com variável de ambiente:
+
+```bash
+curl \
+  -H "Authorization: Bearer $AGENT_API_TOKEN" \
+  "$AGENT_API_BASE_URL/leads?page=1&pageSize=5"
+```
+
+5. Liste integrações e tokens sem revelar segredos:
+
+```bash
+npm run agent:list
+```
+
+A listagem mostra `clientId`, token ID, fingerprint, status, expiração, último uso, audience, scopes e rate limit. O hash também não é exibido.
+
+6. Revogue uma integração inteira ou somente um token:
+
+```bash
+npm run agent:revoke -- --client-id cca_client_EXEMPLO
+npm run agent:revoke -- --token-id 00000000-0000-4000-8000-000000000000
+```
+
+A revogação tem efeito imediato e não depende da expiração.
+
+### Uso do Bearer
 
 ```http
 Authorization: Bearer cca_...
@@ -42,11 +85,7 @@ Accept: application/json
 
 Nunca configure esse token como variável `NEXT_PUBLIC_*`, não o salve no navegador e não o envie como query string.
 
-Revogação imediata pelo identificador público da integração:
-
-```bash
-npm run agent:revoke -- --client-id cca_client_...
-```
+Boas práticas: armazene o segredo em cofre de credenciais, conceda somente os scopes necessários, use HTTPS, prefira credenciais diferentes por consumidor, revise `lastUsedAt`, revogue credenciais sem uso e faça rotação antes do vencimento. Nunca coloque o token em código, argumentos de processo, query string, frontend, Git, documentação, screenshots ou logs.
 
 ## Scopes
 
@@ -156,11 +195,14 @@ Depois de mudar a audience, emita uma nova credencial; tokens criados para outro
 ## Verificação operacional
 
 ```bash
+npm run agent:list
+npm run agent:test-api
+npm run agent:test-security
 npm run agent:verify-queries
 npm run db:verify
 ```
 
-O primeiro comando executa somente leituras na conta administrativa. O segundo confere schema e contagens. Carregue as variáveis de ambiente antes de executar.
+`agent:test-api` é o consumidor HTTP de ponta a ponta. `agent:test-security` cria credenciais técnicas descartáveis para expiração, revogação, audience, scope e rate limit e revoga todas no final. `agent:verify-queries` executa somente leituras diretas para diagnóstico interno; consumidores externos nunca devem usá-lo. `db:verify` confere schema e contagens. Carregue as variáveis de ambiente antes de executar.
 
 ## Limitações e próximos passos
 

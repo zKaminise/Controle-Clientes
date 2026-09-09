@@ -22,9 +22,12 @@
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx scripts/seed.ts",
     "create-admin": "tsx scripts/create-admin.ts",
-    "agent:create-token": "tsx scripts/create-agent-token.ts",
-    "agent:revoke": "tsx scripts/revoke-agent-integration.ts",
-    "agent:verify-queries": "tsx scripts/verify-agent-queries.ts"
+    "agent:create-token": "tsx --env-file-if-exists=.env.local scripts/create-agent-token.ts",
+    "agent:list": "tsx --env-file-if-exists=.env.local scripts/list-agent-integrations.ts",
+    "agent:revoke": "tsx --env-file-if-exists=.env.local scripts/revoke-agent-integration.ts",
+    "agent:test-api": "tsx --env-file-if-exists=.env.local scripts/test-agent-api.ts",
+    "agent:test-security": "tsx --env-file-if-exists=.env.local scripts/test-agent-api-security.ts",
+    "agent:verify-queries": "tsx --env-file-if-exists=.env.local scripts/verify-agent-queries.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

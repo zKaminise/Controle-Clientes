@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   AgentApiError,
   authenticateAgentRequest,
+  generateAgentToken,
   hashAgentToken,
   type AgentAuthStore,
   type AgentIdentity,
@@ -72,6 +73,16 @@ const options = {
 };
 
 describe('agent authentication', () => {
+  it('emits unique high-entropy tokens and hashes them deterministically', () => {
+    const first = generateAgentToken();
+    const second = generateAgentToken();
+    expect(first).toMatch(/^cca_[A-Za-z0-9_-]{43}$/);
+    expect(second).not.toBe(first);
+    expect(hashAgentToken(first)).toMatch(/^[a-f0-9]{64}$/);
+    expect(hashAgentToken(first)).toBe(hashAgentToken(first));
+    expect(hashAgentToken(first)).not.toContain(first);
+  });
+
   it('accepts a scoped, unexpired Bearer token without storing plaintext', async () => {
     const authStore = store();
     const result = await authenticateAgentRequest(
@@ -109,6 +120,39 @@ describe('agent authentication', () => {
         { ...options, store: store() },
       ),
     ).rejects.toMatchObject({ code: 'AGENT_SCOPE_REQUIRED', status: 403 });
+  });
+
+  it('rejects tokens issued for a different audience', async () => {
+    await expect(
+      authenticateAgentRequest(
+        request({ authorization: `Bearer ${token}` }),
+        'crm:leads:read',
+        {
+          ...options,
+          store: store({
+            actor: identity({ audience: 'crm-agent-api-wrong' }),
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'AGENT_AUDIENCE_INVALID', status: 403 });
+  });
+
+  it('rejects a revoked integration', async () => {
+    await expect(
+      authenticateAgentRequest(
+        request({ authorization: `Bearer ${token}` }),
+        'crm:leads:read',
+        {
+          ...options,
+          store: store({
+            actor: identity({
+              status: 'revoked',
+              integrationRevokedAt: now,
+            }),
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'AGENT_INTEGRATION_REVOKED', status: 401 });
   });
 
   it('blocks identities owned by another user', async () => {

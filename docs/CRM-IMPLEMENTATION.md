@@ -161,3 +161,11 @@ Em 08/09/2026 foi adicionada uma superfície versionada e somente leitura em `/a
 - testes de contrato das principais APIs atuais para impedir mudanças silenciosas no frontend.
 
 A migration incremental `0005_worthless_jigsaw.sql` adiciona apenas quatro tabelas internas da integração. Após a aplicação, as contagens comerciais anteriores e posteriores permaneceram idênticas. Arquitetura, uso, contratos e limitações estão em [AGENT-API.md](./AGENT-API.md).
+
+## 13. Primeiro consumidor real — fase 2
+
+Em 09/09/2026 foi ativada a integração `codex-readonly`, com audience exclusiva da API em produção, cinco scopes somente leitura, expiração de 60 dias e limite de 60 requisições por minuto. O token completo foi entregue somente pelo clipboard local e permanece armazenado no banco apenas como hash.
+
+Um consumidor HTTP independente validou em produção pesquisa e detalhe de leads, etapa de prospecção, score, follow-ups, Minha Atenção e métricas comerciais. Testes negativos confirmaram 401 sem token, token inválido, expirado ou revogado; 403 para audience e scope incorretos; 429 após quatro chamadas em uma credencial descartável limitada a três por minuto; e 405 para tentativa de escrita.
+
+Também foram adicionados comandos administrativos para listar integrações sem segredos, revogar uma integração ou token individual e repetir os testes. Nenhum endpoint de escrita, OAuth ou MCP foi introduzido.

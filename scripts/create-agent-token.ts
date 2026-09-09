@@ -1,14 +1,12 @@
-import { randomBytes, randomUUID } from 'node:crypto';
-import { sql } from 'drizzle-orm';
-import { db } from '@/db';
-import { agentAccessTokens, agentIntegrations, users } from '@/db/schema';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import {
+  createAgentIntegration,
+  revokeAgentCredential,
+} from '@/lib/agent-admin';
 import {
   AGENT_SCOPES,
-  agentTokenPrefix,
-  allowedAgentAdminEmail,
   expectedAgentAudience,
-  generateAgentToken,
-  hashAgentToken,
   type AgentScope,
 } from '@/lib/agent-auth';
 
@@ -17,13 +15,42 @@ function argument(name: string) {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-const name = argument('name')?.trim() || 'ChatGPT/Codex somente leitura';
-const expiresInDays = Number(argument('expires-in-days') || 90);
+function flag(name: string) {
+  return process.argv.includes(`--${name}`);
+}
+
+async function copyToClipboard(secret: string) {
+  if (process.platform !== 'win32')
+    throw new Error(
+      '--copy-to-clipboard está disponível somente no Windows. Use --show-token em um terminal interativo.',
+    );
+  const clipboard = spawn('clip.exe', [], {
+    stdio: ['pipe', 'ignore', 'ignore'],
+    windowsHide: true,
+  });
+  clipboard.stdin.end(secret);
+  const [exitCode] = (await once(clipboard, 'exit')) as [number | null];
+  if (exitCode !== 0)
+    throw new Error('Não foi possível copiar para o clipboard.');
+}
+
+const showToken = flag('show-token');
+const copyToken = flag('copy-to-clipboard');
+if (showToken === copyToken)
+  throw new Error(
+    'Escolha exatamente uma entrega segura: --copy-to-clipboard ou --show-token.',
+  );
+if (showToken && !process.stdout.isTTY)
+  throw new Error('--show-token exige um terminal interativo (TTY).');
+
+const name = argument('name')?.trim() || 'codex-readonly';
+const expiresInDays = Number(argument('expires-in-days') || 60);
 const rateLimitPerMinute = Number(argument('rate-limit') || 60);
+const audience = argument('audience')?.trim() || expectedAgentAudience();
 const requestedScopes = (argument('scopes') || AGENT_SCOPES.join(','))
   .split(',')
   .map((scope) => scope.trim())
-  .filter(Boolean);
+  .filter(Boolean) as AgentScope[];
 
 if (
   !Number.isInteger(expiresInDays) ||
@@ -38,58 +65,48 @@ if (
 )
   throw new Error('--rate-limit deve estar entre 1 e 600.');
 const invalidScopes = requestedScopes.filter(
-  (scope) => !AGENT_SCOPES.includes(scope as AgentScope),
+  (scope) => !AGENT_SCOPES.includes(scope),
 );
 if (invalidScopes.length)
   throw new Error(`Scopes inválidos: ${invalidScopes.join(', ')}`);
 
-const adminEmail = allowedAgentAdminEmail();
-const [owner] = await db
-  .select({ id: users.id, email: users.email })
-  .from(users)
-  .where(sql`lower(${users.email}) = ${adminEmail}`)
-  .limit(1);
-if (!owner)
-  throw new Error(
-    `Conta administrativa autorizada não encontrada: ${adminEmail}`,
-  );
+const result = await createAgentIntegration({
+  name,
+  audience,
+  scopes: requestedScopes,
+  expiresAt: new Date(Date.now() + expiresInDays * 86_400_000),
+  rateLimitPerMinute,
+});
 
-const integrationId = randomUUID();
-const tokenId = randomUUID();
-const clientId = `cca_client_${randomBytes(12).toString('hex')}`;
-const token = generateAgentToken();
-const expiresAt = new Date(Date.now() + expiresInDays * 86_400_000);
-const audience = expectedAgentAudience();
-
-await db.batch([
-  db.insert(agentIntegrations).values({
-    id: integrationId,
-    ownerUserId: owner.id,
-    clientId,
-    name,
-    audience,
-    scopes: requestedScopes,
-    rateLimitPerMinute,
-  }),
-  db.insert(agentAccessTokens).values({
-    id: tokenId,
-    integrationId,
-    tokenPrefix: agentTokenPrefix(token),
-    tokenHash: hashAgentToken(token),
-    expiresAt,
-  }),
-]);
+if (copyToken) {
+  try {
+    await copyToClipboard(result.token);
+  } catch (error) {
+    await revokeAgentCredential({ clientId: result.clientId });
+    throw new Error(
+      'A entrega pelo clipboard falhou; a credencial recém-criada foi revogada.',
+      { cause: error },
+    );
+  }
+}
 
 console.log(
   JSON.stringify(
     {
-      clientId,
-      token,
-      tokenType: 'Bearer',
-      audience,
-      scopes: requestedScopes,
-      expiresAt: expiresAt.toISOString(),
-      warning: 'Copie o token agora. O valor em texto puro não foi armazenado.',
+      clientId: result.clientId,
+      tokenId: result.tokenId,
+      token: showToken
+        ? result.token
+        : 'copiado para o clipboard; não recuperável',
+      fingerprint: result.tokenPrefix,
+      ownerEmail: result.ownerEmail,
+      name: result.name,
+      audience: result.audience,
+      scopes: result.scopes,
+      expiresAt: result.expiresAt.toISOString(),
+      rateLimitPerMinute: result.rateLimitPerMinute,
+      warning:
+        'Guarde o segredo agora. O banco armazena somente o hash e não permite recuperá-lo.',
     },
     null,
     2,
