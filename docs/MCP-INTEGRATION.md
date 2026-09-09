@@ -3,6 +3,8 @@
 Última atualização: 09/09/2026  
 Servidor de produção: `https://clientes.gabrielmisao.com.br/mcp`
 
+O transporte usa a revisão MCP `2026-07-28` e mantém o fallback stateless oficial para clientes Codex que ainda negociam `2025-06-18`. A autenticação, os scopes e o catálogo de ferramentas são idênticos nas duas revisões.
+
 ## Estado
 
 A integração remota está implementada em duas camadas compatíveis:

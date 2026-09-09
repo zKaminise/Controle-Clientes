@@ -14,7 +14,9 @@ const handler = createMcpHandler(
     if (!principal) throw new Error('Contexto MCP autenticado ausente.');
     return createCrmMcpServer(principal);
   },
-  { legacy: 'reject', responseMode: 'json' },
+  // Keep the current 2026 transport while serving the 2025 stateless
+  // handshake used by released Codex clients during the transition.
+  { legacy: 'stateless', responseMode: 'json' },
 );
 
 const protectedHandler = requireMcpAuth(
